@@ -1,0 +1,19 @@
+# dependencies / build
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+*.log
+
+# os / editor
+.DS_Store
+.vscode/
+.idea/
+
+# tooling scratch (doc-generation pipeline & headless-browser artifacts)
+.playwright-mcp/
+.*.js
+.pdf_style*.html
+.md2pdf.sh
+build_*.py
+gen_*.py

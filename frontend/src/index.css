@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  @apply bg-void text-txt font-sans;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* faint scanline / grain texture overlay — atmosphere, not decoration */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.016) 0 1px,
+    transparent 1px 3px
+  );
+  opacity: 0.6;
+  mix-blend-mode: overlay;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+.hairline {
+  @apply border border-hair;
+}
+
+/* react flow dark theme tweaks */
+.react-flow__attribution {
+  display: none !important;
+}
+.react-flow__controls button {
+  background: #1a2230;
+  border-color: #232c3a;
+  color: #8a97a6;
+}
+.react-flow__controls button:hover {
+  background: #232c3a;
+}
+.react-flow__minimap {
+  background: #0a0e12 !important;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #232c3a;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
