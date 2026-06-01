@@ -1,6 +1,9 @@
 // API client for the AEGIS Deer Graph backend (voc360 → graph → root cause).
 const BASE = import.meta.env.VITE_API ?? 'http://127.0.0.1:8000'
 
+// v2 console client (signals, kpis, signal-volume, solutions, decisions, narrate).
+export * from './voc2'
+
 export interface GraphNode {
   id: string
   type: 'case' | 'source' | 'service' | 'governorate' | 'rchub' | 'cluster'

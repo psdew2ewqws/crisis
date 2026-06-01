@@ -41,6 +41,14 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# v2 console endpoints: /api/signals, /api/kpis, /api/signal-volume,
+# /api/solutions, /api/decisions, /api/narrate, /api/graph2
+try:
+    from . import main_v2
+    app.include_router(main_v2.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():
