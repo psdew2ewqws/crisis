@@ -1,0 +1,50 @@
+{
+  "incident": {
+    "id": "INC-ZARQA-2026-05", "title": "Zarqa-North water cascade",
+    "primary_location": "JO-AZ-N", "status": "open", "risk_index": 84
+  },
+  "locations": [
+    {"id": "JO-AZ-N", "name": "Zarqa North", "level": "district", "parent": "JO-AZ"},
+    {"id": "JO-AZ", "name": "Zarqa Governorate", "level": "governorate", "parent": "JO"}
+  ],
+  "nodes": [
+    {"id": "PIPE-ZN-44", "type": "Asset", "kind": "pipe", "label": "Trunk main PIPE-ZN-44", "location_ref": "JO-AZ-N", "geo": [36.0876, 32.0728], "attrs": {"diameter_mm": 600, "install_year": 1998, "material": "ductile_iron", "last_inspection": "overdue"}},
+    {"id": "PS-12", "type": "Asset", "kind": "pump", "label": "Pumping station PS-12", "location_ref": "JO-AZ-N", "attrs": {"inlet_pressure_bar": 1.1, "outlet_flow_lps": 12.0}},
+    {"id": "R-3", "type": "Asset", "kind": "reservoir", "label": "Reservoir R-3", "location_ref": "JO-AZ-N", "attrs": {}},
+    {"id": "WATER-ZN", "type": "Service", "kind": "water_distribution", "label": "Water distribution Zarqa-N", "location_ref": "JO-AZ-N", "attrs": {"criticality": 0.9}},
+    {"id": "HOSP-ZN-1", "type": "Asset", "kind": "hospital", "label": "Zarqa General Hospital", "location_ref": "JO-AZ-N", "attrs": {"beds": 180}},
+    {"id": "DP-5", "type": "Asset", "kind": "distribution_point", "label": "Tanker point DP-5", "location_ref": "JO-AZ-N", "attrs": {}},
+    {"id": "JUNC-7", "type": "Asset", "kind": "road", "label": "Road junction JUNC-7", "location_ref": "JO-AZ-N", "attrs": {}},
+    {"id": "POP-ZN", "type": "PopulationSegment", "kind": "population", "label": "Population Zarqa-N", "location_ref": "JO-AZ-N", "attrs": {"size": 180000}},
+    {"id": "COMMS-911", "type": "Service", "kind": "psap", "label": "PSAP 911", "location_ref": "JO-AZ-N", "attrs": {}}
+  ],
+  "edges": [
+    {"src": "PIPE-ZN-44", "dst": "PS-12",     "rel": "feeds",        "w": 0.95, "lag_s": 0},
+    {"src": "PS-12",      "dst": "R-3",        "rel": "supplies",     "w": 0.90, "lag_s": 300},
+    {"src": "R-3",        "dst": "WATER-ZN",   "rel": "provides",     "w": 1.00, "lag_s": 300},
+    {"src": "WATER-ZN",   "dst": "POP-ZN",     "rel": "serves",       "w": 1.00, "lag_s": 0},
+    {"src": "WATER-ZN",   "dst": "HOSP-ZN-1",  "rel": "depends_on",   "w": 0.60, "lag_s": 1800},
+    {"src": "WATER-ZN",   "dst": "DP-5",       "rel": "activated_by", "w": 0.70, "lag_s": 1500},
+    {"src": "DP-5",       "dst": "JUNC-7",     "rel": "impacted_by",  "w": 0.40, "lag_s": 2400},
+    {"src": "POP-ZN",     "dst": "COMMS-911",  "rel": "load_from",    "w": 0.50, "lag_s": 2400}
+  ],
+  "signals": [
+    {"id": "S1", "t_offset_s": 0,    "source": "WAJ-SCADA", "observes": "PS-12",     "metric": "inlet_pressure_bar", "value": 1.1, "baseline": 6.2, "severity_raw": "high"},
+    {"id": "S2", "t_offset_s": 480,  "source": "WAJ",       "observes": "WATER-ZN",  "metric": "reservoir_level",    "value": 0.3, "baseline": 1.0, "severity_raw": "high"},
+    {"id": "S3", "t_offset_s": 2100, "source": "MoH",       "observes": "HOSP-ZN-1", "metric": "ed_occupancy",       "value": 0.94,"baseline": 0.70,"severity_raw": "med"},
+    {"id": "S4", "t_offset_s": 2400, "source": "Traffic",   "observes": "JUNC-7",    "metric": "congestion",         "value": 0.8, "baseline": 0.3, "severity_raw": "low"},
+    {"id": "S5", "t_offset_s": 2700, "source": "PSAP-911",  "observes": "COMMS-911", "metric": "call_volume",         "value": 420, "baseline": 100, "severity_raw": "high"},
+    {"id": "S6", "t_offset_s": 1200, "source": "Social",    "observes": "national",  "metric": "sentiment",          "value": 0.7, "baseline": 0.4, "severity_raw": "low", "unrelated": true}
+  ],
+  "interventions": [
+    {"id": "INT-A", "title": "Isolate ZN-44 + bypass via ZN-12 + 4 tankers", "actions": ["close_valve_V441", "open_bypass_V128", "dispatch_4_tankers"], "cost": "medium", "eta_min": 35, "risk_reduction": "high"},
+    {"id": "INT-B", "title": "Isolate only", "actions": ["close_valve_V441"], "cost": "low", "eta_min": 15, "risk_reduction": "medium"},
+    {"id": "INT-C", "title": "Tankers only", "actions": ["dispatch_6_tankers"], "cost": "high", "eta_min": 50, "risk_reduction": "low"}
+  ],
+  "ground_truth": {
+    "root_cause": "PIPE-ZN-44",
+    "exclude_from_incident": ["S6"],
+    "intervention": "isolate+bypass+tanker",
+    "risk_before": 84, "risk_after": 22
+  }
+}
