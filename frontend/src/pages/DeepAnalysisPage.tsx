@@ -509,27 +509,42 @@ export default function DeepAnalysisPage() {
   const runSuggestion = useCallback(
     (sq: SuggestQuestion) => {
       const p = sq.params ?? {}
-      // resolve the chip's scope (cluster wins, else service/case)
-      const next: Scope | null = p.cluster_id
-        ? { type: 'cluster', key: String(p.cluster_id) }
-        : p.case || p.service || p.id
-          ? { type: 'service', key: String(p.case ?? p.service ?? p.id) }
-          : scope
       const text = sq.text ?? sq.q ?? ''
       const kind = sq.kind ?? sq.intent
-      // a forecast/validate/whys chip re-points the scope (runs the suite); an ask
-      // chip drops the question into the grounded ASK box and runs it.
-      if (kind === 'ask' || (!p.cluster_id && !p.case && !p.service && text)) {
-        setQuestion(text)
-        void runAsk(text, next?.key)
-        askRef.current?.focus()
+
+      // resolve scope — handles all param shapes the backend emits:
+      //   {cluster_id}, {case}, {service}, {type+key}, {entity+key}, {id}
+      const resolvedScope: Scope | null = p.cluster_id
+        ? { type: 'cluster', key: String(p.cluster_id) }
+        : p.case || p.service
+          ? { type: 'service', key: String(p.case ?? p.service) }
+          : (p.type === 'cluster' || p.entity === 'cluster') && p.key
+            ? { type: 'cluster', key: String(p.key) }
+            : (p.type === 'service' || p.entity === 'service') && p.key
+              ? { type: 'service', key: String(p.key) }
+              : p.id
+                ? { type: 'cluster', key: String(p.id) }
+                : scope
+
+      // intents that drive the analysis panels (why-chain graph, forecast, validation)
+      // → change scope so all panels refresh; everything else → grounded Q&A box
+      const SCOPE_INTENTS = new Set(['why_chain', 'forecast_volume', 'case_validation'])
+      if (SCOPE_INTENTS.has(kind ?? '') && resolvedScope) {
+        if (resolvedScope.key !== scope?.key || resolvedScope.type !== scope?.type) {
+          setScope(resolvedScope)
+        } else {
+          void runAnalysis(resolvedScope, metric)
+        }
         return
       }
-      if (next && (next.key !== scope?.key || next.type !== scope?.type)) {
-        setScope(next)
-      } else if (next) {
-        void runAnalysis(next, metric)
-      }
+
+      // all other intents (root_cause_rank, escalation_scan, metric_breakdown,
+      // compare_services, sim_impact, cluster_subthemes, cluster_services, ask…)
+      // → put question in the ask box and scroll to it
+      setQuestion(text)
+      void runAsk(text, resolvedScope?.type === 'service' ? resolvedScope.key : undefined)
+      askRef.current?.focus()
+      askRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scope, metric],
