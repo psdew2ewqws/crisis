@@ -1,12 +1,10 @@
-# AEGIS Dashboard — Frontend
+# AEGIS Crisis Console — Frontend
 
-The **AEGIS National Crisis Command** dashboard: the MVP UI for the General Crisis-Solving Brain. A dark, mission-control command center that walks a duty officer through a crisis case via a 7-step wizard (signals → incident graph → root cause → solutions → simulation → authorize → outcome).
-
-Runs entirely on the embedded **Zarqa** demo fixtures — no backend required.
+The **AEGIS Crisis Console**: the operator dashboard for the General Crisis-Solving Brain. A clean, dark command console — left command rail, KPI cards, a live signal-volume chart, and a tabbed signals/incidents/solutions table — driven by the **Zarqa** demo case. No backend required.
 
 ## Stack
 
-React 18 · TypeScript · Vite · Tailwind CSS · React Flow (dependency graph) · Framer Motion · Recharts · lucide-react.
+React 18 · TypeScript · Vite · Tailwind CSS · Recharts (signal-volume chart) · lucide-react · Geist font.
 
 ## Develop
 
@@ -21,20 +19,14 @@ npm run preview  # preview the production build
 
 ```
 src/
-├── App.tsx                 # layout + wizard state machine
-├── data/zarqa.ts           # the Zarqa demo fixtures (signals, incident, root cause, solutions, sim)
-├── types.ts                # shared domain types + severity tokens
+├── App.tsx                    # console shell (sidebar + topbar + dashboard)
+├── lib/data.ts                # demo fixtures (KPIs, signal volume, signals, cases)
 └── components/
-    ├── TopBar.tsx          # title, National Risk Index, UTC clock
-    ├── SignalFeed.tsx      # live signal stream (left rail)
-    ├── IncidentGraph.tsx   # React Flow dependency-graph canvas (hero)
-    ├── RiskGauge.tsx       # animated radial risk index
-    ├── WizardRail.tsx      # 7-step case wizard (right rail)
-    ├── RootCausePanel.tsx  # causal apex + evidence + rejected symptoms
-    ├── SolutionReview.tsx  # candidate interventions
-    ├── SimulationConsole.tsx # before/after counterfactual (Recharts)
-    ├── DecisionHub.tsx     # human authorization gate
-    └── SeverityBadge.tsx
+    ├── Sidebar.tsx            # brand, Run Analysis, operations nav, active cases, user
+    ├── Topbar.tsx             # breadcrumb, search, notifications, UTC clock
+    ├── KpiCard.tsx            # KPI metric card (value, badge, trend, sub)
+    ├── SignalVolume.tsx       # area chart with time-range toggle (Recharts)
+    └── DataTable.tsx          # tabbed signals / incidents / solutions table
 ```
 
-Theme tokens (severity ramp, command-center palette, typography) live in `tailwind.config.js`.
+Theme tokens (dark palette, blue accent, severity colors, typography) live in `tailwind.config.js`.

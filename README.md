@@ -2,43 +2,21 @@
 
 > A graph-based, deer-flow-style multi-agent system that takes **any** crisis case, connects every signal in a dependency graph, finds the **root cause**, and produces a **validated solution** — demonstrated end-to-end on the *Jordan Crisis Management Simulation Engine* scope, with a working React command-center dashboard.
 
-This repository contains the full body of work: a specification gap analysis, a domain-agnostic system blueprint, a technical engine spec, a deep System Requirements document, an MVP definition, and a **running frontend** — the **AEGIS National Crisis Command** dashboard.
+This repository contains the full body of work: a specification gap analysis, a domain-agnostic system blueprint, a technical engine spec, a deep System Requirements document, an MVP definition, and a **running frontend** — the **AEGIS Crisis Console** dashboard.
 
 ---
 
 ## The dashboard (live MVP UI)
 
-The **AEGIS** dashboard walks a duty officer through a crisis case via a 7-step wizard: raw signals → stitched incident graph → root cause → candidate solutions → simulation/validation → human authorization → outcome. It runs entirely on the embedded Zarqa fixtures (no backend required).
+The **AEGIS Crisis Console** is the operator dashboard: a left command rail (operations + active cases), at-a-glance KPI cards, a live signal-volume chart, and a tabbed signals / incidents / solutions table — all driven by the Zarqa demo case (no backend required).
 
-### 1 · Cockpit — signals streaming in
-The command center: live signal feed (left), the incident dependency graph (center, root node ringed in red), the National Risk Index gauge and case wizard (right).
+![AEGIS Crisis Console](screenshots/dashboard.png)
 
-![Cockpit](screenshots/01-cockpit.png)
+- **KPIs** — National Risk (84, ▲ +12, critical), Apex Confidence (0.91, PyRCA — `PIPE-ZN-44` isolated, loud symptoms demoted), Projected Risk (22, ▼ −62, validated fix holds), Time to Mitigate (35 min — isolate + bypass + tanker).
+- **Signal Volume** — 911 call rate & pressure anomalies for Zarqa North: a flat baseline ramping into the cascade onset.
+- **Signals table** — per-entity observations with severity, Δ value, Z-score and time. The quiet `PIPE-ZN-44` pressure drop is the true root cause behind the loud 911/hospital spikes.
 
-### 2 · Root Cause — symptom vs. cause
-Backward causal traversal names **PIPE-ZN-44** (the trunk-main rupture) the root cause at **91% confidence**, and explicitly **rejects** the loud 911 surge and hospital load as downstream *symptoms*.
-
-![Root Cause](screenshots/02-root-cause.png)
-
-### 3 · Candidate Solutions
-Interventions that act on the **cause**, ranked. The recommended fix (isolate + bypass + tankers) is highlighted; the "surge the ER" option is flagged *symptom-only*.
-
-![Solutions](screenshots/03-solutions.png)
-
-### 4 · Validation — counterfactual simulation
-Each candidate is re-simulated on the hydraulic twin. A solution is **valid** only if it drops the risk index vs. no action: **72 → 24**, VALIDATED.
-
-![Simulation](screenshots/04-simulation.png)
-
-### 5 · Decision Gate — human authorization
-A hard human-in-the-loop gate: a `decision_authority` must type their initials to commit. Nothing is tasked automatically.
-
-![Decision Gate](screenshots/05-decision-gate.png)
-
-### 6 · Outcome — the loop closes
-Intervention authorized and logged to the audit trail; the risk index settles at **24** and the outcome feeds back to recalibrate the models.
-
-![Outcome](screenshots/06-authorized.png)
+![Signals table](screenshots/dashboard-table.png)
 
 ---
 
@@ -51,7 +29,7 @@ npm run dev
 # open http://localhost:5173
 ```
 
-Built with **React 18 + TypeScript · Vite · Tailwind CSS · React Flow · Framer Motion · Recharts**. No backend needed — it ships with the Zarqa demo fixtures in `src/data/zarqa.ts`.
+Built with **React 18 + TypeScript · Vite · Tailwind CSS · Recharts · lucide-react**. No backend needed — it ships with the Zarqa demo fixtures in `src/lib/data.ts`.
 
 ---
 
