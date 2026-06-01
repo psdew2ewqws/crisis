@@ -48,7 +48,9 @@ _DECISIONS: List[Dict[str, Any]] = []
 _SEQ = 0
 
 # Allowed lifecycle states; first is the default for a freshly proposed action.
-VALID_STATUSES = ("proposed", "authorized", "in_progress", "done", "rejected")
+# "approved" is the frontend's term for an authorized decision, accepted so the
+# gate can persist proposed → approved (legacy "authorized" stays valid too).
+VALID_STATUSES = ("proposed", "approved", "authorized", "in_progress", "done", "rejected")
 DEFAULT_STATUS = VALID_STATUSES[0]
 
 
@@ -112,9 +114,12 @@ def create_decision(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             "id": f"dec_{_SEQ:05d}",
             "ts": _now_iso(),
             "cluster_id": _coerce_str(p.get("cluster_id")),
-            "label": _coerce_str(p.get("label")),
+            # The route's DecisionIn speaks the frontend's field names (title/owner);
+            # accept those as aliases for the store's label/authorized_by so the
+            # decision carries a real title and the authorizing officer's name.
+            "label": _coerce_str(p.get("label") or p.get("title")),
             "action": _coerce_str(p.get("action")),
-            "authorized_by": _coerce_str(p.get("authorized_by"), default="operator"),
+            "authorized_by": _coerce_str(p.get("authorized_by") or p.get("owner"), default="operator"),
             "status": _normalize_status(p.get("status")),
             "rationale": _coerce_str(p.get("rationale")),
             "expected_impact": _coerce_str(p.get("expected_impact")),
@@ -135,20 +140,27 @@ def get_decision(decision_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def update_status(decision_id: str, status: Any) -> Optional[Dict[str, Any]]:
-    """Transition a decision to a new lifecycle status; return it, or None.
+def update_status(
+    decision_id: str, status: Any, authorized_by: Any = None
+) -> Optional[Dict[str, Any]]:
+    """Transition a decision IN PLACE to a new lifecycle status; return it, or None.
 
     Unknown statuses are coerced to the default rather than rejected, keeping the
-    route handler trivial.
+    route handler trivial. When `authorized_by` is supplied (the gate names an
+    officer), it is recorded on the existing row so the authorization gate
+    mutates the proposed decision instead of appending a duplicate.
     """
     key = _coerce_str(decision_id)
     new_status = _normalize_status(status)
+    who = _coerce_str(authorized_by)
     if not key:
         return None
     with _LOCK:
         for d in _DECISIONS:
             if d["id"] == key:
                 d["status"] = new_status
+                if who:
+                    d["authorized_by"] = who
                 return dict(d)
     return None
 

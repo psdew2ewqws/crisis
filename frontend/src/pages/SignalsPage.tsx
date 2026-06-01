@@ -4,9 +4,8 @@
 // governorate, text/text_clean (Arabic, RTL), observed_at, rating, sentiment_label,
 // severity. Filters by service / severity / source + free-text search, with paging.
 //
-// Import-safe: it pulls `getSignals` from ../lib/voc when present, otherwise falls
-// back to a direct fetch of /api/signals, and finally to a graceful empty state.
-// AEGIS dark-console tokens throughout.
+// Import-safe: it fetches /api/signals directly and degrades to a graceful
+// empty state. AEGIS dark-console tokens throughout.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Search,
@@ -17,7 +16,6 @@ import {
   RotateCw,
   Radio,
 } from 'lucide-react'
-import * as voc from '../lib/voc'
 
 // ── voc360 row shape (the_data) ────────────────────────────────────────────
 export interface Signal {
@@ -82,23 +80,16 @@ function sentTone(s?: string | null): string {
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low']
 
 // ── resilient data loader ──────────────────────────────────────────────────
-// Tries the typed client first (voc.getSignals), then a raw /api/signals fetch,
-// so the page renders whether or not the API client has been extended yet.
+// Fetches /api/signals; HTTP/network failures throw and surface the error UI.
 const API_BASE =
   (import.meta as { env?: Record<string, string> }).env?.VITE_API ?? 'http://127.0.0.1:8000'
 
 async function loadSignals(q: Query): Promise<SignalsResponse> {
   const params: Record<string, string> = { limit: String(PAGE_SIZE), offset: String(q.page * PAGE_SIZE) }
-  if (q.service !== ALL) params.service = q.service
+  if (q.service !== ALL) params.service_id = q.service
   if (q.severity !== ALL) params.severity = q.severity
-  if (q.source !== ALL) params.source = q.source
+  if (q.source !== ALL) params.source_type = q.source
   if (q.search.trim()) params.q = q.search.trim()
-
-  const client = (voc as Record<string, unknown>).getSignals
-  if (typeof client === 'function') {
-    const res = await (client as (p: Record<string, string>) => Promise<unknown>)(params)
-    return normalize(res)
-  }
 
   const qs = new URLSearchParams(params).toString()
   const r = await fetch(`${API_BASE}/api/signals?${qs}`)

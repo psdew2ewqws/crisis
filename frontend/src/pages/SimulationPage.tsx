@@ -156,7 +156,7 @@ const METRICS: MetricDef[] = [
     title: 'Complaint Volume',
     sub: 'Aggregate weighted inflow across the graph',
     color: '#FBBF24',
-    format: fmt2,
+    format: fmt0,
     domain: ['auto', 'auto'],
   },
   {
@@ -243,7 +243,7 @@ function MetricChart({
         </div>
         <div className="flex items-center gap-3 text-[11.5px]">
           <span className="flex items-center gap-1.5 text-faint">
-            <span className="inline-block h-2 w-2 rounded-full" style={{ background: '#62646D' }} />
+            <span className="inline-block h-2 w-2 rounded-full" style={{ background: 'var(--color-faint)' }} />
             Before
           </span>
           <span className="flex items-center gap-1.5 text-txt">
@@ -479,7 +479,7 @@ export default function SimulationPage({ caseId }: { caseId?: string } = {}) {
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard
                 label="Δ Mean negativity"
-                value={signed(-negDelta, fmtPct)}
+                value={signed(negDelta, fmtPct)}
                 hint={`${fmtPct(num(bLast?.mean_negativity))} → ${fmtPct(num(aLast?.mean_negativity))} at final step`}
                 tone={negDelta > 0 ? 'good' : negDelta < 0 ? 'danger' : 'neutral'}
                 icon={TrendingDown}
@@ -493,7 +493,7 @@ export default function SimulationPage({ caseId }: { caseId?: string } = {}) {
               />
               <StatCard
                 label="Δ Peak negativity"
-                value={signed(-peakDelta, fmtPct)}
+                value={signed(peakDelta, fmtPct)}
                 hint="Reduction in worst-tick sentiment load"
                 tone={peakDelta > 0 ? 'good' : peakDelta < 0 ? 'danger' : 'neutral'}
                 icon={Activity}

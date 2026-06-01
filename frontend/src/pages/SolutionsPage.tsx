@@ -28,7 +28,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import * as voc from '../lib/voc'
-import type { RootCause } from '../lib/voc'
+import type { RootCause, Decision, NewDecision, CreateDecisionResponse } from '../lib/voc'
 
 /* ------------------------------------------------------------------ types -- */
 
@@ -57,30 +57,26 @@ export interface ValidSolution {
   confidence: number
 }
 
-export interface Decision {
-  id: string
-  cluster_id: string
-  title: string
-  agency: string
-  authorized_at: string
-}
-
 /* --------------------------------------------------- optional client probe -- */
 // Read optional functions off the namespace import so a not-yet-added export
 // never breaks the build or the module load.
 
 type SolutionsFn = (limit?: number) => Promise<{ solutions: ValidSolution[] }>
-type CreateDecisionFn = (d: {
-  cluster_id: string
-  title: string
-  agency: string
-}) => Promise<Decision>
+// voc2.createDecision takes a NewDecision (action required; agency is NOT a
+// server field) and resolves to {ok, decision?, error?}. A live HTTP-200 POST
+// returns the BARE decision row with an `id` and no `ok` field, so authorize()
+// tolerates both shapes.
+type CreateDecisionFn = (d: NewDecision) => Promise<CreateDecisionResponse>
 
 const api = voc as unknown as Record<string, unknown>
 const getSolutions =
   typeof api.getSolutions === 'function' ? (api.getSolutions as SolutionsFn) : null
 const createDecision =
   typeof api.createDecision === 'function' ? (api.createDecision as CreateDecisionFn) : null
+const getDecisions =
+  typeof api.getDecisions === 'function'
+    ? (api.getDecisions as () => Promise<{ decisions: Decision[]; source?: string }>)
+    : null
 const getRootCause =
   typeof api.getRootCause === 'function'
     ? (api.getRootCause as () => Promise<{ root_causes: RootCause[]; recommendation: string }>)
@@ -294,7 +290,10 @@ function SolutionCard({
             <span className="font-mono text-[11px] text-faint">#{sol.rank}</span>
             <span className="font-mono text-[11px] text-muted">{sol.cluster_id.slice(0, 8)}</span>
           </div>
-          <h3 className="mt-1 text-[16px] font-semibold leading-tight tracking-tight text-txt">
+          <h3
+            dir={isAr(sol.title) ? 'rtl' : 'ltr'}
+            className="mt-1 text-[16px] font-semibold leading-tight tracking-tight text-txt"
+          >
             {sol.title}
           </h3>
           <p
@@ -302,7 +301,9 @@ function SolutionCard({
             dir={isAr(sol.label_ar) ? 'rtl' : 'ltr'}
           >
             {sol.label_ar}
-            {sol.label_en && <span className="text-faint"> · {sol.label_en}</span>}
+            {sol.label_en && !isAr(sol.label_en) && sol.label_en !== sol.label_ar && (
+              <span className="text-faint"> · {sol.label_en}</span>
+            )}
           </p>
         </div>
         <span
@@ -398,6 +399,16 @@ export default function SolutionsPage() {
   useEffect(() => {
     let alive = true
     async function load() {
+      // 0) hydrate already-authorized decisions from the backend store so
+      // authorizedIds (which keys on cluster_id) reflects prior sessions.
+      if (getDecisions) {
+        try {
+          const dec = await getDecisions()
+          if (alive) setDecisions(dec.decisions ?? [])
+        } catch {
+          /* leave decisions empty */
+        }
+      }
       // 1) preferred: real solutions endpoint.
       if (getSolutions) {
         try {
@@ -412,7 +423,7 @@ export default function SolutionsPage() {
                 label_en: s.label_en ?? null,
                 members: s.affected_signals ?? s.members ?? 0,
                 severity_avg: s.severity_avg ?? 0,
-                title: s.label_en || s.label_ar || 'Root cause',
+                title: (s.label_en && !isAr(s.label_en) ? s.label_en : null) || s.label_ar || 'Root cause',
                 actions: s.countermeasure ? [s.countermeasure] : (s.actions ?? []),
                 agency: s.owning_service || s.agency || '—',
                 impact_reduction:
@@ -468,12 +479,42 @@ export default function SolutionsPage() {
     setPending(sol.cluster_id)
     try {
       if (createDecision) {
-        const d = await createDecision({
+        // Send the server-required fields: `action` is required (422 without it);
+        // `agency` is NOT a server field, so carry it via owner/rationale.
+        const res = await createDecision({
           cluster_id: sol.cluster_id,
           title: sol.title,
-          agency: sol.agency,
+          action: sol.actions[0] ?? sol.title,
+          owner: sol.agency,
+          rationale: `Authorized — ${sol.agency}`,
         })
-        setDecisions((xs) => [...xs, d])
+        // A live HTTP-200 POST returns the BARE decision row (has `id`, no `ok`);
+        // voc2's type says {ok, decision}. Tolerate both, and only treat it as
+        // authorized when the backend actually accepted it.
+        const raw = res as CreateDecisionResponse & Partial<Decision>
+        const decision: Decision | undefined =
+          raw.decision ?? (typeof raw.id === 'string' ? (raw as unknown as Decision) : undefined)
+        // Success = a returned decision (bare row or wrapped) or an explicit ok:true.
+        // jf's unreachable fallback is {ok:false,error} with no decision → fail.
+        if (!decision && raw.ok !== true) {
+          setErr(raw.error ?? 'Decision was not saved.')
+          return
+        }
+        // Push the UNWRAPPED decision; ensure it carries cluster_id so
+        // authorizedIds.has(sol.cluster_id) flips the card and the gate.
+        setDecisions((xs) => [
+          ...xs,
+          {
+            id: decision?.id ?? `dec-${sol.cluster_id}`,
+            cluster_id: decision?.cluster_id ?? sol.cluster_id,
+            title: decision?.title ?? sol.title,
+            action: decision?.action ?? (sol.actions[0] ?? sol.title),
+            status: decision?.status ?? 'proposed',
+            owner: decision?.owner ?? sol.agency,
+            rationale: decision?.rationale ?? null,
+            created_at: decision?.created_at ?? new Date().toISOString(),
+          },
+        ])
       } else {
         // local-only decision so the flow completes without the backend.
         setDecisions((xs) => [
@@ -482,8 +523,11 @@ export default function SolutionsPage() {
             id: `local-${sol.cluster_id}`,
             cluster_id: sol.cluster_id,
             title: sol.title,
-            agency: sol.agency,
-            authorized_at: new Date().toISOString(),
+            action: sol.actions[0] ?? sol.title,
+            status: 'proposed',
+            owner: sol.agency,
+            rationale: null,
+            created_at: new Date().toISOString(),
           },
         ])
       }

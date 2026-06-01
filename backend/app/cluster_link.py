@@ -87,6 +87,66 @@ def cluster_signals(cluster_id: str) -> int:
     return int(links().get(cluster_id, {}).get("signals", 0))
 
 
+def cluster_signal_rows(cluster_id: str, limit: int = 50) -> list[dict]:
+    """REAL the_data rows that prove a cluster, via the same segment_text→the_data
+    text match used in _compute().
+
+    Pull the cluster's member segment_texts, take ~60 distinct keys
+    (``segment_text.strip()[:50]``), and LIKE-match each against
+    ``coalesce(text_clean, text)`` to return the full real rows that the cluster's
+    segments were extracted from. The join is O(segments×rows), so keys are capped
+    and the result is LIMITed to stay fast.
+    """
+    if not cluster_id:
+        return []
+    seg_rows = db.fetchall(
+        """
+        select s.segment_text
+        from ril_cluster_members m
+        join ril_text_segments s on s.segment_id = m.segment_id
+        where m.cluster_id = %(cid)s and length(s.segment_text) > 12
+        order by m.distance_to_centroid asc nulls last
+        limit 600
+        """,
+        {"cid": cluster_id},
+    )
+    keys: list[str] = []
+    seen: set[str] = set()
+    for r in seg_rows:
+        key = (r["segment_text"] or "").strip()[:50]
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        keys.append(key)
+        if len(keys) >= 60:  # cap distinct keys — the match is O(segments×rows)
+            break
+    if not keys:
+        return []
+    # ILIKE-match each key as a substring of a real the_data row; one query.
+    # Escape ILIKE wildcards so a literal %/_ in the segment matches literally.
+    def _esc(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    conds = " or ".join(
+        f"coalesce(text_clean, text) ilike %(k{i})s" for i in range(len(keys))
+    )
+    params: dict = {"lim": limit}
+    for i, k in enumerate(keys):
+        params[f"k{i}"] = f"%{_esc(k)}%"
+    return db.fetchall(
+        f"""
+        select record_id, service_id, source_type,
+               coalesce(text_clean, text) as text,
+               sentiment_label, severity, observed_at
+        from the_data
+        where coalesce(text_clean, text) is not null
+          and ({conds})
+        limit %(lim)s
+        """,
+        params,
+    )
+
+
 def service_cluster_edges(min_weight: int = 2) -> list[tuple[str, str, int]]:
     out: list[tuple[str, str, int]] = []
     for cid, info in links().items():

@@ -29,5 +29,8 @@ backend/.env
 build_*.py
 gen_*.py
 
+# QA / verification screenshots (regenerated on demand, not source)
+crisis-*.png
+
 # runtime cache (recomputed on first run)
 backend/data/

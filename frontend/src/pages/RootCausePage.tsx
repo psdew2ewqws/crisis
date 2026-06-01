@@ -24,7 +24,7 @@ import {
   Database,
   ChevronRight,
 } from 'lucide-react'
-import { getRootCause, type RootCause } from '../lib/voc'
+import { getRootCause, type RootCause, type Solution } from '../lib/voc'
 
 /* ------------------------------------------------------------------ tokens */
 
@@ -63,7 +63,9 @@ async function loadLabels(): Promise<LabelsMap> {
 function englishLabel(c: RootCause, labels: LabelsMap): string {
   const raw = labels[c.cluster_id]
   const fromMap = typeof raw === 'string' ? raw : raw?.en
-  return (fromMap || c.label_en || '').trim() || '(untranslated cluster)'
+  // On real voc360 data label_en is null, so fall back to the Arabic canonical
+  // label (which is always populated) before the "(untranslated)" sentinel.
+  return (fromMap || c.label_en || c.label_ar || '').trim() || '(untranslated cluster)'
 }
 function arabicLabel(c: RootCause, labels: LabelsMap): string {
   const raw = labels[c.cluster_id]
@@ -74,14 +76,9 @@ function arabicLabel(c: RootCause, labels: LabelsMap): string {
 /* ----------------------------------------------- optional solution engine (T3) */
 // The "valid solution" engine (cause → countermeasure, feasibility, expected
 // impact) is exposed via getSolutions in a later track. We probe for it without
-// hard-coupling so this page stays import-safe before that endpoint exists.
-interface Solution {
-  cluster_id: string
-  countermeasure: string
-  feasibility?: string
-  expected_impact?: string
-  owner?: string
-}
+// hard-coupling so this page stays import-safe before that endpoint exists. The
+// canonical Solution shape (owning_service, feasibility/impact + their *_label)
+// lives in ../lib/voc so the render below reads the real /api/solutions fields.
 
 async function loadSolutions(): Promise<Record<string, Solution>> {
   try {
@@ -103,8 +100,9 @@ async function loadSolutions(): Promise<Record<string, Solution>> {
 export default function RootCausePage({
   onNavigate,
 }: {
-  // App.tsx drives views via onNavigate(label); 'Root Cause' opens the graph view.
-  onNavigate?: (view: string) => void
+  // App.tsx drives views via onNavigate(label, clusterId?); 'Incident Graph'
+  // opens the graph view focused on the selected cluster.
+  onNavigate?: (view: string, clusterId?: string) => void
 }) {
   const [causes, setCauses] = useState<RootCause[]>([])
   const [recommendation, setRecommendation] = useState<string | null>(null)
@@ -171,7 +169,7 @@ export default function RootCausePage({
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => onNavigate?.('Root Cause')}
+              onClick={() => onNavigate?.('Incident Graph', selected ?? undefined)}
               className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[13px] text-muted transition-colors hover:bg-soft hover:text-txt"
             >
               <Network className="h-4 w-4" />
@@ -292,7 +290,7 @@ export default function RootCausePage({
               cause={selectedCause}
               labels={labels}
               solution={selectedCause ? solutions[selectedCause.cluster_id] : undefined}
-              onOpenGraph={() => onNavigate?.('Root Cause')}
+              onOpenGraph={() => onNavigate?.('Incident Graph', selectedCause?.cluster_id)}
             />
           </div>
         )}
@@ -385,11 +383,15 @@ function ClusterDetail({
           <p className="text-[13px] leading-snug text-txt" dir={dir(solution.countermeasure)}>
             {solution.countermeasure}
           </p>
-          {(solution.feasibility || solution.expected_impact || solution.owner) && (
+          {(solution.feasibility != null || solution.expected_impact != null || solution.owning_service) && (
             <dl className="mt-2 space-y-1 text-[11.5px]">
-              {solution.owner && <SolutionRow k="Owner" v={solution.owner} />}
-              {solution.feasibility && <SolutionRow k="Feasibility" v={solution.feasibility} />}
-              {solution.expected_impact && <SolutionRow k="Expected impact" v={solution.expected_impact} />}
+              {solution.owning_service && <SolutionRow k="Owner" v={solution.owning_service} />}
+              {solution.feasibility != null && (
+                <SolutionRow k="Feasibility" v={`${solution.feasibility_label} (${Math.round(solution.feasibility * 100)}%)`} />
+              )}
+              {solution.expected_impact != null && (
+                <SolutionRow k="Expected impact" v={`${solution.impact_label} (${Math.round(solution.expected_impact * 100)}%)`} />
+              )}
             </dl>
           )}
         </div>

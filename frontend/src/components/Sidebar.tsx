@@ -11,11 +11,11 @@ import {
   Settings,
   HelpCircle,
 } from 'lucide-react'
-import { cases, type Tone } from '../lib/data'
+import type { Tone } from '../lib/data'
 
 const OPS = [
   { label: 'Dashboard', icon: LayoutGrid, badge: null },
-  { label: 'Signals', icon: Activity, badge: '6' },
+  { label: 'Signals', icon: Activity, badge: null },
   { label: 'Incident Graph', icon: Share2, badge: null },
   { label: 'Root Cause', icon: Target, badge: null },
   { label: 'Solutions', icon: FlaskConical, badge: null },
@@ -23,6 +23,14 @@ const OPS = [
   { label: 'Decisions', icon: PenLine, badge: null },
   { label: 'Deep Analysis', icon: Brain, badge: null },
 ]
+
+// A sidebar CASE row = a real voc360 service (id) with its signal/critical counts.
+export interface CaseRow {
+  id: string
+  name: string
+  score: string // formatted badge (e.g. signal count)
+  tone: Tone
+}
 
 const dot: Record<Tone, string> = {
   danger: 'bg-danger',
@@ -41,10 +49,20 @@ export default function Sidebar({
   onRun,
   active,
   onNavigate,
+  cases,
+  activeCase,
+  onSelectCase,
+  onSettings,
+  onHelp,
 }: {
   onRun: () => void
   active: string
   onNavigate: (s: string) => void
+  cases: CaseRow[]
+  activeCase: string | null
+  onSelectCase: (id: string) => void
+  onSettings: () => void
+  onHelp: () => void
 }) {
   return (
     <aside className="flex w-[248px] shrink-0 flex-col border-r border-border bg-sidebar">
@@ -94,27 +112,44 @@ export default function Sidebar({
           )
         })}
 
-        <div className="px-2 pb-1.5 pt-4 text-[10px] font-semibold tracking-[0.14em] text-faint">CASE</div>
-        {cases.map((c) => (
-          <button
-            key={c.name}
-            onClick={() => onNavigate(c.name)}
-            className="group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
-          >
-            <span className={`h-2 w-2 rounded-full ${dot[c.tone]}`} />
-            <span className="group-hover:text-txt">{c.name}</span>
-            <span className={`ml-auto font-mono text-[11px] ${score[c.tone]}`}>{c.score}</span>
-          </button>
-        ))}
+        <div className="px-2 pb-1.5 pt-4 text-[10px] font-semibold tracking-[0.14em] text-faint">
+          CASE · SERVICE
+        </div>
+        {cases.length === 0 && (
+          <div className="px-3 py-2 text-[12px] text-faint">Loading services…</div>
+        )}
+        {cases.map((c) => {
+          const on = activeCase === c.id
+          return (
+            <button
+              key={c.id}
+              onClick={() => onSelectCase(c.id)}
+              dir={/[؀-ۿ]/.test(c.name) ? 'rtl' : 'ltr'}
+              className={`group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
+                on ? 'bg-cardhi text-txt' : 'text-muted hover:bg-soft hover:text-txt'
+              }`}
+            >
+              <span className={`h-2 w-2 shrink-0 rounded-full ${dot[c.tone]}`} />
+              <span className={`truncate ${on ? 'font-medium' : 'group-hover:text-txt'}`}>{c.name}</span>
+              <span className={`ml-auto shrink-0 font-mono text-[11px] ${score[c.tone]}`}>{c.score}</span>
+            </button>
+          )
+        })}
       </nav>
 
       {/* footer */}
       <div className="border-t border-border px-3 py-3">
-        <button className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt">
+        <button
+          onClick={onSettings}
+          className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
+        >
           <Settings className="h-[18px] w-[18px]" />
           Settings
         </button>
-        <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt">
+        <button
+          onClick={onHelp}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
+        >
           <HelpCircle className="h-[18px] w-[18px]" />
           Get Help
         </button>

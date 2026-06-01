@@ -77,6 +77,111 @@ export const getRootCause = () => j<{ root_causes: RootCause[]; recommendation: 
 export const getStats = () => j<Record<string, number>>('/api/stats')
 export const getHealth = () => j<{ ok: boolean; database?: string; error?: string }>('/api/health')
 
+// ============================================================= PROOF DRILL-DOWN
+// Click a graph node → GET /api/proof gives the full PROOF of a problem:
+// the 5-whys causal trace, structured validation, evidence quotes, the real
+// the_data rows behind it, and a best-effort forecast. See AGREED API CONTRACT.
+export interface ProofSubject {
+  type: 'cluster' | 'service' | 'all'
+  key: string
+  cluster_id: string
+  label_ar: string
+  label_en: string | null
+  members: number
+  severity_avg: number
+  signals: number
+  services: [string, number][]
+  first_seen: string | null
+  last_seen: string | null
+}
+export interface WhyStep {
+  depth: number
+  question: string
+  because: string
+  because_en: string | null
+  evidence: string[]
+  signals: number
+}
+export interface ValidationCheck {
+  name: string
+  pass: boolean
+  score: number
+  detail: string
+  evidence: string[]
+}
+export interface Validation {
+  verdict: string
+  confidence: number
+  score: number
+  summary: string
+  checks: ValidationCheck[]
+}
+export interface EvidenceSegment {
+  segment_text: string
+  confidence: number
+}
+export interface RelatedCase {
+  record_id: string
+  service_id: string
+  text: string
+  sentiment_label: string
+  severity: number
+  observed_at: string
+  source_type: string
+}
+export interface ForecastPoint {
+  t: string
+  mean: number
+  lo: number
+  hi: number
+}
+export interface Escalation {
+  recent_mean: number
+  forecast_mean: number
+  ratio: number
+  escalating: boolean
+}
+export interface Forecast {
+  history: { t: string; v: number }[]
+  forecast: ForecastPoint[]
+  escalation: Escalation | null
+  source: string
+}
+export interface ProofBundle {
+  ok: boolean
+  subject: ProofSubject
+  why_chain: WhyStep[]
+  root: string
+  narration: string
+  validation: Validation
+  evidence_segments: EvidenceSegment[]
+  related_cases: RelatedCase[]
+  forecast: Forecast | null
+  report_url: string
+}
+
+const qp = (o: Record<string, string | number | undefined>) =>
+  Object.entries(o)
+    .filter(([, v]) => v !== undefined && v !== '')
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+    .join('&')
+
+export const getProof = (p: { type: 'cluster' | 'service' | 'all'; key: string; depth?: number }) =>
+  j<ProofBundle>(`/api/proof?${qp({ type: p.type, key: p.key, depth: p.depth ?? 5 })}`)
+
+export const reportUrl = (clusterId: string) => `${BASE}/api/report/${encodeURIComponent(clusterId)}.xlsx`
+
+export const getWhys = (p: { type: 'cluster' | 'service' | 'all'; key: string; max_depth?: number }) =>
+  j<{ why_chain: WhyStep[]; root: string; narration: string }>(
+    `/api/whys?${qp({ type: p.type, key: p.key, max_depth: p.max_depth ?? 5 })}`,
+  )
+
+export const getForecast = (p: { entity: string; key: string; metric?: string; horizon?: number }) =>
+  j<Forecast>(`/api/forecast?${qp({ entity: p.entity, key: p.key, metric: p.metric, horizon: p.horizon })}`)
+
+export const getValidate = (p: { cluster_id: string }) =>
+  j<Validation>(`/api/validate?${qp({ cluster_id: p.cluster_id })}`)
+
 // stream the Deer Graph flow (NDJSON)
 export async function* runFlow(c?: string): AsyncGenerator<FlowEvent> {
   const r = await fetch(`${BASE}/api/flow/run${c ? `?case=${encodeURIComponent(c)}` : ''}`, { method: 'POST' })

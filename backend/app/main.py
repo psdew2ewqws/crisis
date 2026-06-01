@@ -57,6 +57,13 @@ try:
 except Exception:
     pass
 
+# proof + Excel-report endpoints: /api/proof, /api/report/<cluster_id>.xlsx
+try:
+    from . import proof
+    app.include_router(proof.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():

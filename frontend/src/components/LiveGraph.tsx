@@ -12,11 +12,13 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts'
-import { Zap, Loader2, Database, CheckCircle2, Circle, FlaskConical } from 'lucide-react'
+import { Zap, Loader2, Database, CheckCircle2, Circle, FlaskConical, ChevronDown } from 'lucide-react'
 import {
-  getGraph, getRootCause, getHealth, getSimulate, runFlow,
-  type Graph, type RootCause, type FlowEvent, type Sim,
+  getGraph, getRootCause, getHealth, getSimulate, runFlow, getCases,
+  type Graph, type RootCause, type FlowEvent, type Sim, type CaseServiceRow,
 } from '../lib/voc'
+import ProofPanel from './ProofPanel'
+import { useChartColors } from '../stores/themeStore'
 
 const SEV: Record<string, string> = { alert: '#F04359', warn: '#FBBF24', calm: '#34D399', neutral: '#8B8D96' }
 const TAG: Record<string, string> = {
@@ -51,6 +53,7 @@ const nodeTypes = { g: GNode }
 const STAGES = ['connect', 'ingest', 'graph', 'rootcause', 'recommend']
 
 export default function LiveGraph() {
+  const cc = useChartColors() // theme-aware palette for the React Flow canvas
   const [graph, setGraph] = useState<Graph | null>(null)
   const [causes, setCauses] = useState<RootCause[]>([])
   const [health, setHealth] = useState<{ ok: boolean; database?: string } | null>(null)
@@ -60,6 +63,10 @@ export default function LiveGraph() {
   const [rec, setRec] = useState<string | null>(null)
   const [sim, setSim] = useState<Sim | null>(null)
   const [simBusy, setSimBusy] = useState(false)
+  const [services, setServices] = useState<CaseServiceRow[]>([])
+  const [service, setService] = useState('') // '' = all services
+  // selected proof drill-down (replaces the default aside when set)
+  const [proof, setProof] = useState<{ type: 'cluster' | 'service' | 'all'; key: string } | null>(null)
 
   async function runSim() {
     if (simBusy) return
@@ -85,10 +92,19 @@ export default function LiveGraph() {
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth({ ok: false }))
-    Promise.all([getGraph(), getRootCause()])
-      .then(([g, rc]) => { setGraph(g); setCauses(rc.root_causes); setRec(rc.recommendation) })
+    getCases().then((r) => setServices(r.services)).catch(() => setServices([]))
+    getRootCause()
+      .then((rc) => { setCauses(rc.root_causes); setRec(rc.recommendation) })
       .catch((e) => setErr(String(e)))
   }, [])
+
+  // (re)fetch the graph whenever the service filter changes (default = all)
+  useEffect(() => {
+    setGraph(null)
+    getGraph(service || undefined)
+      .then(setGraph)
+      .catch((e) => setErr(String(e)))
+  }, [service])
 
   const { nodes, edges } = useMemo(() => {
     if (!graph) return { nodes: [] as Node[], edges: [] as Edge[] }
@@ -105,6 +121,23 @@ export default function LiveGraph() {
     })
     return { nodes, edges }
   }, [graph])
+
+  // click a node → resolve its real id and open the PROOF drill-down.
+  // ID MAPPING: graph cluster ids are SHORT 'cl::b39d06f6'; the proof API needs
+  // the FULL uuid — strip the 'cl::' prefix and match it against the loaded
+  // root causes (cluster_id.startsWith(prefix)). Service ids are 'svc::<id>'.
+  function onNodeClick(_: unknown, node: Node) {
+    const orig = graph?.nodes.find((n) => n.id === node.id)
+    if (!orig) return
+    if (orig.type === 'cluster') {
+      const prefix = orig.id.replace(/^cl::/, '')
+      const full = causes.find((c) => c.cluster_id.startsWith(prefix))?.cluster_id ?? prefix
+      setProof({ type: 'cluster', key: full })
+    } else if (orig.type === 'service') {
+      const key = orig.id.replace(/^svc::/, '') || orig.label
+      setProof({ type: 'service', key })
+    }
+  }
 
   async function run() {
     if (running) return
@@ -135,33 +168,63 @@ export default function LiveGraph() {
             {graph && <span className="text-faint">· {graph.stats.signals.toLocaleString()} signals · {graph.stats.services} services · {graph.stats.clusters} root causes</span>}
           </p>
         </div>
-        <button
-          onClick={run}
-          className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-60"
-          disabled={running}
-        >
-          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 fill-white" />}
-          {running ? 'Running flow…' : 'Run Deer Graph Flow'}
-        </button>
+        <div className="flex items-center gap-3">
+          {/* pick a case / service to filter the graph (default = all) */}
+          <div className="relative">
+            <select
+              value={service}
+              onChange={(e) => { setProof(null); setService(e.target.value) }}
+              dir={isAr(service) ? 'rtl' : 'ltr'}
+              className="appearance-none rounded-lg border border-border bg-card py-2.5 pl-3 pr-8 text-[13px] text-txt transition-colors hover:bg-soft focus:outline-none"
+            >
+              <option value="">All services</option>
+              {services.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.id} ({s.signals})
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+          </div>
+          <button
+            onClick={run}
+            className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-60"
+            disabled={running}
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 fill-white" />}
+            {running ? 'Running flow…' : 'Run Deer Graph Flow'}
+          </button>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1">
         {/* graph canvas */}
         <div className="relative min-h-0 flex-1">
           {err && <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-danger/40 bg-card px-4 py-3 text-[13px] text-danger">{err}</div>}
+          {!graph && !err && (
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2 text-[13px] text-muted">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              loading graph…
+            </div>
+          )}
           {graph && (
             <ReactFlow
               nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.18 }}
-              proOptions={{ hideAttribution: true }} minZoom={0.15} nodesConnectable={false} elementsSelectable={false}
+              proOptions={{ hideAttribution: true }} minZoom={0.15} nodesConnectable={false}
+              elementsSelectable onNodeClick={onNodeClick}
+              className="[&_.react-flow__node]:cursor-pointer"
             >
-              <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#1A1B20" />
-              <MiniMap nodeColor={(n) => (n.data as { color: string }).color} maskColor="#0A0A0Bcc" style={{ background: '#0B0B0D' }} pannable />
+              <Background variant={BackgroundVariant.Dots} gap={24} size={1} color={cc.soft} />
+              <MiniMap nodeColor={(n) => (n.data as { color: string }).color} maskColor={`${cc.bg}cc`} style={{ background: cc.card }} pannable />
               <Controls showInteractive={false} />
             </ReactFlow>
           )}
         </div>
 
-        {/* right panel */}
+        {/* right panel — PROOF drill-down when a node is selected, else flow/sim/rootcauses */}
+        {proof ? (
+          <ProofPanel query={proof} onBack={() => setProof(null)} />
+        ) : (
         <aside className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-l border-border bg-sidebar">
           {/* flow stages */}
           <div className="border-b border-border p-4">
@@ -231,7 +294,7 @@ export default function LiveGraph() {
           <div className="p-4">
             <div className="mb-3 font-mono text-[10px] tracking-[0.14em] text-faint">RANKED ROOT CAUSES · RIL</div>
             <div className="space-y-2">
-              {causes.map((c) => {
+              {(() => { const maxMembers = Math.max(1, ...causes.map((c) => c.members)); return causes.map((c) => {
                 const col = c.severity_avg >= 0.5 ? SEV.alert : c.severity_avg >= 0.3 ? SEV.warn : SEV.calm
                 return (
                   <div key={c.cluster_id} className="rounded-lg border border-border bg-card p-3">
@@ -241,14 +304,20 @@ export default function LiveGraph() {
                     </div>
                     <div className="mt-1 text-[12.5px] leading-snug text-txt" dir="rtl">{c.label_ar}</div>
                     <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-soft">
-                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, (c.members / 551) * 100)}%`, background: col }} />
+                      <div className="h-full rounded-full" style={{ width: `${(c.members / maxMembers) * 100}%`, background: col }} />
                     </div>
                   </div>
                 )
-              })}
+              }) })()}
+              {causes.length === 0 && (
+                <div className="text-[11px] text-muted">
+                  {graph || err ? 'No root causes yet' : 'loading…'}
+                </div>
+              )}
             </div>
           </div>
         </aside>
+        )}
       </div>
     </div>
   )

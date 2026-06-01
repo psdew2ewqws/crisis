@@ -2,12 +2,18 @@
 //
 // Renders the operator decision log returned by GET /api/decisions (getDecisions)
 // — what was chosen about a root cause / solution — as a clean table with status
-// chips, owner, linked RIL cluster and rationale. The page also enforces the
+// chips, owner, linked RIL cluster and rationale. The page also surfaces the
 // human-in-the-loop AUTHORIZATION GATE: a decision that is still `proposed`
 // cannot take effect until a named person authorizes it. Authorizing posts back
 // through createDecision (the existing module signature) with status `approved`
-// and records the authorizer, so the gate is grounded in real backend state
-// rather than a local-only toggle.
+// and the authorizer.
+//
+// NOTE: the current POST /api/decisions store APPENDS a new row and does not
+// honor a status/owner transition on an existing decision (it persists
+// status:"proposed", authorized_by:"operator"). Until the backend adds an
+// authorize/PATCH endpoint, the gate cannot transition the original row — this
+// page only logs the authorization attempt; it is NOT yet grounded in a real
+// backend status change.
 //
 // Real voc360 columns only: decisions reference ril_problem_clusters.cluster_id
 // (the root-cause layer); no Zarqa demo fixtures are used. Import-safe: every
@@ -33,11 +39,12 @@ import {
 } from 'lucide-react'
 import {
   getDecisions,
-  createDecision,
+  updateDecision,
   AEGIS,
   toneColor,
   type Tone,
   type Decision,
+  type CreateDecisionResponse,
 } from '../lib/voc2'
 
 /* ------------------------------------------------------------------ tokens */
@@ -92,6 +99,36 @@ function authorizedBy(d: Decision): string | null {
   return v ? String(v) : null
 }
 
+// The live GET /api/decisions store row uses `ts`/`label`/`authorized_by`, not
+// the voc2 Decision `created_at`/`title`/`owner`. Normalize on read so rows
+// render and StatusIcon/needsAuthorization see real values. The store status
+// enum uses `authorized` where voc2 uses `approved`; map it so the tone/label
+// maps resolve and the row reads as cleared.
+type RawDecision = Decision & {
+  ts?: string | null
+  label?: string | null
+  authorized_by?: string | null
+}
+
+function normalizeRow(raw: Decision): Decision {
+  const r = raw as RawDecision
+  const status = ((r.status as string) === 'authorized' ? 'approved' : r.status) as Decision['status']
+  return {
+    ...raw,
+    status,
+    title: raw.title || r.label || '',
+    created_at: raw.created_at ?? r.ts ?? '',
+    owner: raw.owner ?? r.authorized_by ?? null,
+  }
+}
+
+// The DECISION column must never be blank: the live store persists `label:""` on
+// every row, so fall back through title → action → short cluster id.
+function titleOf(d: Decision): string {
+  const r = d as RawDecision
+  return (r.label || d.title || d.action || (d.cluster_id ? String(d.cluster_id).slice(0, 8) : '') || '—')
+}
+
 /* ----------------------------------------------------------------- component */
 
 export default function DecisionsPage({
@@ -117,7 +154,8 @@ export default function DecisionsPage({
     setErr(null)
     try {
       const res = await getDecisions()
-      setDecisions(Array.isArray(res?.decisions) ? res.decisions : [])
+      const rows = Array.isArray(res?.decisions) ? res.decisions.map(normalizeRow) : []
+      setDecisions(rows)
       setSource(res?.source ?? 'fallback')
     } catch (e) {
       setErr(String(e))
@@ -162,20 +200,16 @@ export default function DecisionsPage({
     setSubmitting(true)
     setGateErr(null)
     try {
-      const verb = status === 'approved' ? 'Authorized' : 'Rejected'
-      const res = await createDecision({
-        cluster_id: d.cluster_id,
-        title: d.title,
-        action: d.action,
-        status,
-        owner: who,
-        // Encode authorized_by into the rationale so it survives even if the
-        // backend has no dedicated column; servers that do persist
-        // `authorized_by` will pick up `owner` as the human authorizer.
-        rationale: `${verb} by ${who}${d.rationale ? ` — ${d.rationale}` : ''}`,
-      })
-      if (!res?.ok) {
-        setGateErr(res?.error || 'Backend rejected the authorization — is the decisions store writable?')
+      // Transition the EXISTING proposed decision in place (PATCH) so the row's
+      // status + authorized_by are ratified — no duplicate decision is appended.
+      const res = await updateDecision(d.id, { status, authorized_by: who })
+      // A successful PATCH returns the BARE updated row ({id,...}) with no `ok`
+      // field; the unreachable fallback returns {ok:false}. Accept either a real
+      // row (has id) or an {ok:true,decision} wrapper.
+      const raw = res as CreateDecisionResponse & Partial<Decision>
+      const accepted = raw.ok === true || !!raw.decision || typeof raw.id === 'string'
+      if (!accepted) {
+        setGateErr(raw.error || 'Backend rejected the authorization — is the decisions store writable?')
         return
       }
       setGateFor(null)
@@ -326,8 +360,8 @@ function DecisionRow({
     <tr className="border-t border-border/70 align-top transition-colors hover:bg-soft/50">
       {/* decision title + action */}
       <td className="px-5 py-3.5">
-        <div className="text-[13.5px] font-medium text-txt" dir={dir(d.title)}>
-          {d.title}
+        <div className="text-[13.5px] font-medium text-txt" dir={dir(titleOf(d))}>
+          {titleOf(d)}
         </div>
         {d.action && (
           <div className="mt-0.5 max-w-[360px] truncate text-[12px] text-muted" dir={dir(d.action)}>
@@ -376,7 +410,9 @@ function DecisionRow({
       </td>
 
       {/* logged at */}
-      <td className="py-3.5 font-mono text-[11.5px] text-muted">{fmtTime(d.created_at)}</td>
+      <td className="py-3.5 font-mono text-[11.5px] text-muted">
+        {fmtTime((d as Decision & { ts?: string | null }).ts ?? d.created_at)}
+      </td>
 
       {/* gate action */}
       <td className="px-5 py-3.5 text-right">
@@ -441,8 +477,8 @@ function GateModal({
 
         {/* body */}
         <div className="px-5 py-4">
-          <h3 className="text-[15.5px] font-semibold leading-snug text-txt" dir={dir(decision.title)}>
-            {decision.title}
+          <h3 className="text-[15.5px] font-semibold leading-snug text-txt" dir={dir(titleOf(decision))}>
+            {titleOf(decision)}
           </h3>
           {decision.action && (
             <p className="mt-1 text-[13px] leading-snug text-muted" dir={dir(decision.action)}>

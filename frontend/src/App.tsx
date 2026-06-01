@@ -1,12 +1,17 @@
-import { Suspense, lazy, useState, type ReactNode } from 'react'
-import { Zap, Loader2 } from 'lucide-react'
-import Sidebar from './components/Sidebar'
+import { Suspense, lazy, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Zap, Loader2, X, Check } from 'lucide-react'
+import Sidebar, { type CaseRow } from './components/Sidebar'
 import Topbar from './components/Topbar'
 import KpiCard from './components/KpiCard'
 import SignalVolume from './components/SignalVolume'
 import DataTable from './components/DataTable'
 import LiveGraph from './components/LiveGraph'
-import { kpis } from './lib/data'
+import Onboarding from './components/Onboarding'
+import SettingsDrawer from './components/SettingsDrawer'
+import HelpDrawer from './components/HelpDrawer'
+import ErrorBoundary from './components/ErrorBoundary'
+import { kpis as fallbackKpis, type Kpi, type Tone } from './lib/data'
+import { getKpis, getCases, runFlow, type CaseServiceRow, type FlowEvent } from './lib/voc'
 
 const SignalsPage = lazy(() => import('./pages/SignalsPage'))
 const RootCausePage = lazy(() => import('./pages/RootCausePage'))
@@ -23,13 +28,169 @@ function Loading() {
   )
 }
 
-function DashboardView() {
-  const [running, setRunning] = useState(false)
-  const run = () => {
-    if (running) return
-    setRunning(true)
-    setTimeout(() => setRunning(false), 1600)
-  }
+function fmtCount(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n)
+}
+
+// Real voc360 service → sidebar CASE row. Tone flags urgency by critical count.
+function toCaseRow(s: CaseServiceRow): CaseRow {
+  const tone: Tone = s.critical > 50 ? 'danger' : s.critical > 0 ? 'warn' : 'neutral'
+  return { id: s.id, name: s.id, score: fmtCount(s.signals), tone }
+}
+
+/* ── live run progress (real streamed runFlow) ────────────────────────────── */
+// The backend emits exactly these stages, each "running" then "done"; the final
+// recommend.done detail carries the drafted recommendation text.
+const STAGES = [
+  { id: 'connect', label: 'Connect', hint: 'Connecting to voc360' },
+  { id: 'ingest', label: 'Ingest', hint: 'Pulling citizen signals' },
+  { id: 'graph', label: 'Graph', hint: 'Building dependency graph' },
+  { id: 'rootcause', label: 'Root Cause', hint: 'Ranking problem clusters' },
+  { id: 'recommend', label: 'Recommend', hint: 'Drafting recommendation' },
+] as const
+
+type StageState = 'idle' | 'running' | 'done'
+
+interface RunState {
+  active: boolean
+  service: string | null
+  stages: Record<string, StageState>
+  details: Record<string, string>
+  recommendation: string | null
+  error: string | null
+}
+
+const idleRun: RunState = {
+  active: false,
+  service: null,
+  stages: {},
+  details: {},
+  recommendation: null,
+  error: null,
+}
+
+function RunProgress({ run, onClose }: { run: RunState; onClose: () => void }) {
+  if (!run.active && !run.recommendation && !run.error) return null
+  const finished = !!run.recommendation || !!run.error
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4">
+      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+          <div className="flex items-center gap-2.5">
+            <Zap className="h-4 w-4 fill-blue text-blue" />
+            <div className="text-[14px] font-semibold text-txt">
+              Deer Graph Analysis
+              <span
+                className="ml-2 font-mono text-[12px] font-normal text-muted"
+                dir={/[؀-ۿ]/.test(run.service ?? '') ? 'rtl' : 'ltr'}
+              >
+                {run.service ?? 'All services'}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={!finished}
+            title={finished ? 'Close' : 'Running…'}
+            className="rounded-lg p-1.5 text-muted transition-colors hover:bg-soft hover:text-txt disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4">
+          <ol className="space-y-2.5">
+            {STAGES.map((st) => {
+              const state: StageState = run.stages[st.id] ?? 'idle'
+              const detail = run.details[st.id]
+              return (
+                <li key={st.id} className="flex items-start gap-3">
+                  <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center">
+                    {state === 'done' ? (
+                      <Check className="h-4 w-4 text-good" />
+                    ) : state === 'running' ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-blue" />
+                    ) : (
+                      <span className="h-2 w-2 rounded-full bg-border" />
+                    )}
+                  </span>
+                  <div className="min-w-0">
+                    <div
+                      className={`text-[13.5px] ${
+                        state === 'idle' ? 'text-faint' : 'font-medium text-txt'
+                      }`}
+                    >
+                      {st.label}
+                    </div>
+                    <div
+                      className="truncate text-[12px] text-muted"
+                      dir={/[؀-ۿ]/.test(detail ?? '') ? 'rtl' : 'ltr'}
+                    >
+                      {detail ?? st.hint}
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+
+          {run.recommendation && (
+            <div className="mt-4 rounded-lg border border-blue/40 bg-blue/5 px-4 py-3">
+              <div className="mb-1 text-[11px] font-semibold tracking-[0.12em] text-blue">
+                RECOMMENDATION
+              </div>
+              <p
+                className="text-[13.5px] leading-relaxed text-txt"
+                dir={/[؀-ۿ]/.test(run.recommendation) ? 'rtl' : 'ltr'}
+              >
+                {run.recommendation}
+              </p>
+            </div>
+          )}
+          {run.error && (
+            <div className="mt-4 rounded-lg border border-danger/40 bg-danger/5 px-4 py-3 text-[13px] text-danger">
+              {run.error}
+            </div>
+          )}
+        </div>
+
+        {finished && (
+          <div className="flex justify-end border-t border-border px-5 py-3">
+            <button
+              onClick={onClose}
+              className="rounded-lg bg-blue px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#2f76e8]"
+            >
+              Done
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DashboardView({
+  service,
+  onRun,
+  query,
+}: {
+  service: string | null
+  onRun: () => void
+  query: string
+}) {
+  const [kpis, setKpis] = useState<Kpi[] | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    getKpis().then((r) => {
+      if (alive) setKpis(r.kpis && r.kpis.length ? (r.kpis as unknown as Kpi[]) : fallbackKpis)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const cards = kpis ?? fallbackKpis
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-[1340px] px-8 py-7">
@@ -37,31 +198,109 @@ function DashboardView() {
           <div>
             <h1 className="text-[28px] font-semibold tracking-tight text-txt">Dashboard</h1>
             <p className="mt-1.5 text-[14px] text-muted">
-              Zarqa Trunk-Main Cascade · Zarqa North · <span className="font-medium text-danger">Critical</span>
+              Live voc360 ·{' '}
+              <span className="font-medium text-txt" dir={/[؀-ۿ]/.test(service ?? '') ? 'rtl' : 'ltr'}>
+                {service ?? 'All services'}
+              </span>
             </p>
           </div>
           <button
-            onClick={run}
+            onClick={onRun}
             className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8]"
           >
-            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 fill-white" />}
-            {running ? 'Analyzing…' : 'Run Analysis'}
+            <Zap className="h-4 w-4 fill-white" />
+            Run Analysis
           </button>
         </div>
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {kpis.map((k) => (
+          {cards.map((k) => (
             <KpiCard key={k.title} kpi={k} />
           ))}
         </div>
-        <div className="mt-4"><SignalVolume /></div>
-        <div className="mt-4"><DataTable onRun={run} /></div>
+        <div className="mt-4"><SignalVolume service={service} /></div>
+        <div className="mt-4"><DataTable onRun={onRun} service={service} query={query} /></div>
       </div>
     </div>
   )
 }
 
 export default function App() {
+  const [onboarded, setOnboarded] = useState(
+    () => typeof localStorage !== 'undefined' && localStorage.getItem('aegis-onboarded') !== null,
+  )
   const [view, setView] = useState('Dashboard')
+  const [services, setServices] = useState<CaseServiceRow[]>([])
+  const [activeService, setActiveService] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [run, setRun] = useState<RunState>(idleRun)
+
+  useEffect(() => {
+    let alive = true
+    getCases().then((r) => {
+      if (!alive) return
+      const sorted = [...(r.services ?? [])].sort(
+        (a, b) => b.critical - a.critical || b.signals - a.signals,
+      )
+      setServices(sorted.slice(0, 8))
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const cases = useMemo<CaseRow[]>(() => services.map(toCaseRow), [services])
+
+  const selectCase = (id: string) => {
+    setActiveService((prev) => (prev === id ? null : id)) // click again to clear filter
+    setView('Dashboard')
+  }
+
+  // Real streamed Deer Graph run against the active service. Drives the live
+  // progress overlay; the final recommend.done detail is the recommendation.
+  const runAnalysis = async () => {
+    if (run.active) return
+    const service = activeService
+    setRun({ ...idleRun, active: true, service })
+    try {
+      for await (const ev of runFlow(service ?? undefined) as AsyncGenerator<FlowEvent>) {
+        setRun((prev) => {
+          const next: RunState = {
+            ...prev,
+            stages: { ...prev.stages, [ev.stage]: ev.status === 'done' ? 'done' : 'running' },
+            details: { ...prev.details, [ev.stage]: ev.detail },
+          }
+          if (ev.stage === 'recommend' && ev.status === 'done') next.recommendation = ev.detail
+          return next
+        })
+      }
+      setRun((prev) => ({ ...prev, active: false }))
+    } catch (e) {
+      setRun((prev) => ({
+        ...prev,
+        active: false,
+        error: e instanceof Error ? e.message : 'Analysis failed to stream.',
+      }))
+    }
+  }
+
+  // Sidebar "Run Analysis": show the live reactflow canvas AND stream the run.
+  const runFromSidebar = () => {
+    setView('Incident Graph')
+    runAnalysis()
+  }
+
+  if (!onboarded) {
+    return (
+      <Onboarding
+        onDone={() => {
+          localStorage.setItem('aegis-onboarded', '1')
+          setOnboarded(true)
+        }}
+      />
+    )
+  }
 
   let content: ReactNode
   switch (view) {
@@ -72,18 +311,38 @@ export default function App() {
     case 'Simulation': content = <SimulationPage />; break
     case 'Decisions': content = <DecisionsPage />; break
     case 'Deep Analysis': content = <DeepAnalysisPage />; break
-    default: content = <DashboardView />
+    default: content = <DashboardView service={activeService} onRun={runAnalysis} query={search} />
   }
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg text-txt">
-      <Sidebar onRun={() => setView('Incident Graph')} active={view} onNavigate={setView} />
+      <Sidebar
+        onRun={runFromSidebar}
+        active={view}
+        onNavigate={setView}
+        cases={cases}
+        activeCase={activeService}
+        onSelectCase={selectCase}
+        onSettings={() => setSettingsOpen(true)}
+        onHelp={() => setHelpOpen(true)}
+      />
       <main className="flex min-w-0 flex-1 flex-col">
-        <Topbar />
+        <Topbar
+          crumb={activeService ?? undefined}
+          query={search}
+          onSearch={setSearch}
+          onBell={() => setHelpOpen(true)}
+        />
         <div className="flex min-h-0 flex-1 flex-col">
-          <Suspense fallback={<Loading />}>{content}</Suspense>
+          <ErrorBoundary key={view} onReset={() => setView('Dashboard')}>
+            <Suspense fallback={<Loading />}>{content}</Suspense>
+          </ErrorBoundary>
         </div>
       </main>
+
+      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <RunProgress run={run} onClose={() => setRun(idleRun)} />
     </div>
   )
 }

@@ -706,6 +706,45 @@ def post_decision(payload: DecisionIn) -> Dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
+class DecisionPatch(BaseModel):
+    status: Optional[str] = None
+    authorized_by: Optional[str] = None
+
+
+@router.patch("/api/decisions/{decision_id}")
+def patch_decision(decision_id: str, payload: DecisionPatch) -> Dict[str, Any]:
+    """Transition an existing decision IN PLACE (the authorization gate).
+
+    Prefers the sibling ``decisions`` store's ``update_status`` (mutates the row
+    and records the authorizing officer); falls back to the local JSON store.
+    Returns the updated decision, or ``{ok: False}`` when the id is unknown — so
+    the gate ratifies the proposed row instead of appending a duplicate.
+    """
+    if decisions_mod is not None:
+        fn = getattr(decisions_mod, "update_status", None)
+        if callable(fn):
+            try:
+                row = fn(decision_id, payload.status, payload.authorized_by)
+            except TypeError:
+                row = fn(decision_id, payload.status)  # older 2-arg signature
+            if isinstance(row, dict):
+                return row
+    try:
+        store = _read_decisions()
+        for d in store:
+            if d.get("id") == decision_id:
+                if payload.status:
+                    d["status"] = payload.status
+                if payload.authorized_by:
+                    d["owner"] = payload.authorized_by
+                    d["authorized_by"] = payload.authorized_by
+                _write_decisions(store)
+                return {"ok": True, "decision": d}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": False, "error": "decision not found"}
+
+
 def _read_decisions() -> List[Dict[str, Any]]:
     try:
         with open(_DECISIONS_PATH, "r", encoding="utf-8") as fh:

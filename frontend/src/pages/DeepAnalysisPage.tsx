@@ -131,21 +131,23 @@ const jpost = <T,>(path: string, body: unknown, fallback: T): Promise<T> =>
   })
 
 /* ---- shared v3 types (mirror D-api.md contracts) ---- */
-type Engine = 'llm' | 'fallback'
+type Engine = 'llm' | 'fallback' | string
 type Verdict = 'valid' | 'weak' | 'insufficient'
 type FcMethod = 'timesfm-2.5' | 'timesfm-2.0' | 'holt-winters' | 'seasonal-naive' | 'empty' | string
 
 export interface Citation {
-  source: 'segment' | 'signal' | 'cluster' | 'forecast' | string
-  ref: string
-  text: string
+  type?: 'segment' | 'signal' | 'cluster' | 'forecast' | 'service' | 'engine' | string
+  id?: string
+  label?: string
+  text?: string
 }
 
 // reactflow-feeding why graph (api_v3 /api/whys.graph & /api/rootcause-graph)
 export interface WhyNode {
   id: string
   depth: number
-  kind: 'symptom' | 'cluster' | 'subtheme' | 'root' | string
+  kind?: 'symptom' | 'cluster' | 'subtheme' | 'root' | string
+  type?: 'service' | 'cluster' | 'subtheme' | 'phrase' | string
   label_ar?: string
   label_en?: string
   label?: string
@@ -230,6 +232,7 @@ export interface ForecastResponse {
   history: HistPoint[]
   forecast: FcPoint[]
   method?: FcMethod
+  source?: FcMethod // live API emits the engine here ('seasonal-naive' | 'timesfm-2.5' | ...)
   escalation?: Escalation | null
   narration?: string
   engine?: Engine
@@ -336,7 +339,7 @@ const getForecast = (
   horizon = 30,
   metric: 'volume' | 'sentiment' = 'volume',
 ): Promise<ForecastResponse> =>
-  jf<ForecastResponse>(`/api/forecast${qs({ target: scope.type, id: scope.key, horizon, metric })}`, FB_FORECAST)
+  jf<ForecastResponse>(`/api/forecast${qs({ entity: scope.type, key: scope.key, horizon, metric })}`, FB_FORECAST)
 
 const validateCase = (scope: Scope): Promise<ValidateResponse> =>
   jf<ValidateResponse>(
@@ -367,8 +370,12 @@ const KIND_TAG: Record<string, string> = {
   subtheme: 'SUB-THEME',
   root: 'ROOT CAUSE',
   service: 'SERVICE',
-  phrase: 'PHRASE',
+  phrase: 'ROOT CAUSE',
 }
+
+// the live /api/whys nodes carry `type` (service|cluster|subtheme|phrase); older
+// shapes used `kind` — read either so colors/tags resolve against the real keys.
+const nodeKind = (n: WhyNode): string => (n.kind ?? n.type ?? '')
 
 function WhyGNode({ data }: NodeProps) {
   const c = data.color as string
@@ -400,8 +407,9 @@ function WhyGNode({ data }: NodeProps) {
 const nodeTypes = { why: WhyGNode }
 
 function whyNodeColor(n: WhyNode): string {
-  if (n.kind === 'symptom' || n.kind === 'service') return AEGIS.blue
-  if (n.kind === 'root') return AEGIS.danger
+  const k = nodeKind(n)
+  if (k === 'symptom' || k === 'service') return AEGIS.blue
+  if (k === 'root' || k === 'phrase') return AEGIS.danger
   return sevColor(n.severity_avg ?? 0)
 }
 
@@ -607,7 +615,7 @@ export default function DeepAnalysisPage() {
         draggable: true,
         data: {
           label,
-          tag: KIND_TAG[n.kind] ?? (n.kind || '').toUpperCase(),
+          tag: KIND_TAG[nodeKind(n)] ?? nodeKind(n).toUpperCase(),
           count: n.count ?? n.signals,
           color: c,
           active: selectedNode?.id === n.id,
@@ -793,8 +801,8 @@ export default function DeepAnalysisPage() {
                   <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#1A1B20" />
                   <MiniMap
                     nodeColor={(n) => (n.data as { color: string }).color}
-                    maskColor="#0A0A0Bcc"
-                    style={{ background: '#0B0B0D' }}
+                    maskColor="transparent"
+                    style={{ background: 'var(--color-card)' }}
                     pannable
                   />
                   <Controls showInteractive={false} />
@@ -1075,7 +1083,7 @@ function EvidencePanel({ node }: { node: WhyNode | null }) {
       <div className="flex items-center gap-2">
         <span className="h-2 w-2 rounded-full" style={{ background: col }} />
         <span className="font-mono text-[10px] tracking-[0.14em] text-faint">
-          {KIND_TAG[node.kind] ?? (node.kind || '').toUpperCase()} · DEPTH {node.depth}
+          {KIND_TAG[nodeKind(node)] ?? nodeKind(node).toUpperCase()} · DEPTH {node.depth}
         </span>
       </div>
       <h3 className="mt-2 text-[15px] font-semibold leading-snug text-txt" dir={dir(label)}>
@@ -1145,7 +1153,7 @@ function ForecastPanel({
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
             30-day {metric === 'volume' ? 'signal volume' : 'negative-sentiment share'} ·{' '}
-            <MethodBadge method={data.method} />
+            <MethodBadge method={data.method ?? data.source} />
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           </div>
         </div>
@@ -1396,12 +1404,12 @@ function AskPanel({
                   {answer.citations.map((c, i) => (
                     <li key={i} className="flex items-start gap-2 text-[11.5px]">
                       <span className="mt-0.5 shrink-0 rounded bg-soft px-1.5 py-0.5 font-mono text-[9px] text-faint">
-                        {c.source}
-                        {c.ref ? `·${c.ref}` : ''}
+                        {c.type}
+                        {c.id ? `·${c.id}` : ''}
                       </span>
-                      {c.text && (
-                        <span className="text-muted" dir={dir(c.text)}>
-                          {c.text}
+                      {(c.text ?? c.label) && (
+                        <span className="text-muted" dir={dir(c.text ?? c.label)}>
+                          {c.text ?? c.label}
                         </span>
                       )}
                     </li>
@@ -1437,14 +1445,19 @@ function AskPanel({
 }
 
 /* ===================================================== small badges */
-function EngineBadge({ engine }: { engine: Engine }) {
-  const llm = engine === 'llm'
+function EngineBadge({ engine }: { engine?: string }) {
+  if (!engine) return null
+  const isLlm = engine === 'llm'
+  const isFallback = engine === 'fallback'
+  // Service-name engines (validate, forecast, suggest, …) are real, not fallbacks.
+  const label = isLlm ? 'LLM' : isFallback ? 'GROUNDED FALLBACK' : engine.toUpperCase()
+  const color = isFallback ? AEGIS.muted : AEGIS.good
   return (
     <span
       className="rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.1em]"
-      style={{ background: AEGIS.soft, color: llm ? AEGIS.good : AEGIS.muted }}
+      style={{ background: AEGIS.soft, color }}
     >
-      {llm ? 'LLM' : 'GROUNDED FALLBACK'}
+      {label}
     </span>
   )
 }

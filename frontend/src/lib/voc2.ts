@@ -215,6 +215,38 @@ export const getSignalVolume = (query: VolumeQuery = {}): Promise<SignalVolumeRe
     EMPTY_VOLUME,
   )
 
+// ============================================================= CASES
+// Real voc360 services + top root-cause clusters that drive the sidebar's CASE
+// list (replacing the Zarqa demo fixtures). `services` are the actual service_id
+// values in the_data with their signal + critical counts; selecting one filters
+// the dashboard's signal-volume + signals table by service_id.
+export interface CaseServiceRow {
+  id: string // real service_id (Sanad, Amman Bus, نقل_عام …)
+  signals: number
+  critical: number
+}
+
+export interface CaseCluster {
+  rank: number
+  cluster_id: string
+  label_ar: string
+  label_en: string | null
+  members: number
+  severity_avg: number
+  score: number
+  evidence: string[]
+}
+
+export interface CasesResponse {
+  services: CaseServiceRow[]
+  top_root_causes: CaseCluster[]
+}
+
+const EMPTY_CASES: CasesResponse = { services: [], top_root_causes: [] }
+
+export const getCases = (): Promise<CasesResponse> =>
+  jf<CasesResponse>('/api/cases', EMPTY_CASES)
+
 // ============================================================= SOLUTIONS
 // T3 'valid solution' engine: cause → countermeasure, feasibility, impact.
 // Grounded in a ril_problem_clusters root cause.
@@ -293,6 +325,28 @@ export const createDecision = (payload: NewDecision): Promise<CreateDecisionResp
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    },
+  )
+
+// Transition an existing decision IN PLACE (the authorization gate). The server
+// mutates the proposed row's status + authorized_by rather than appending a new
+// one. Returns the bare updated decision row (no `ok` wrapper) on success.
+export interface DecisionPatch {
+  status?: Decision['status']
+  authorized_by?: string
+}
+
+export const updateDecision = (
+  id: string,
+  patch: DecisionPatch,
+): Promise<CreateDecisionResponse | Decision> =>
+  jf<CreateDecisionResponse | Decision>(
+    `/api/decisions/${encodeURIComponent(id)}`,
+    { ok: false, error: 'backend unreachable' },
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
     },
   )
 
