@@ -5,6 +5,17 @@ frontend/dist/
 dist/
 *.log
 
+# python backend
+backend/.venv/
+**/__pycache__/
+*.pyc
+
+# secrets — NEVER commit real DB credentials
+.env
+backend/.env
+*.env
+!*.env.example
+
 # os / editor
 .DS_Store
 .vscode/

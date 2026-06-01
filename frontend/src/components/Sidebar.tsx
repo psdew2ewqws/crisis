@@ -1,39 +1,26 @@
 import {
   Zap,
   LayoutGrid,
-  Radio,
-  GitBranch,
+  Activity,
+  Share2,
   Target,
-  Lightbulb,
   FlaskConical,
-  ShieldCheck,
+  Gauge,
+  PenLine,
   Settings,
   HelpCircle,
 } from 'lucide-react'
-import { NavLink, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
-import { AnimatePresence } from 'motion/react'
 import { cases, type Tone } from '../lib/data'
-import { useAppStore } from '../stores/appStore'
-import { useWizardStore } from '../stores/wizardStore'
-import SettingsDrawer from './SettingsDrawer'
-import HelpDrawer from './HelpDrawer'
 
 const OPS = [
-  { label: 'Dashboard', icon: LayoutGrid, badge: null, to: '/' },
-  { label: 'Signals', icon: Radio, badge: '6', to: '/signals' },
-  { label: 'Incident Graph', icon: GitBranch, badge: null, to: '/case/zarqa-2025-08/graph' },
-  { label: 'Root Cause', icon: Target, badge: null, to: '/case/zarqa-2025-08/root-cause' },
-  { label: 'Solutions', icon: Lightbulb, badge: null, to: '/case/zarqa-2025-08/solutions' },
-  { label: 'Simulation', icon: FlaskConical, badge: null, to: '/case/zarqa-2025-08/sim' },
-  { label: 'Decisions', icon: ShieldCheck, badge: null, to: '/case/zarqa-2025-08/decide' },
+  { label: 'Dashboard', icon: LayoutGrid, badge: null },
+  { label: 'Signals', icon: Activity, badge: '6' },
+  { label: 'Incident Graph', icon: Share2, badge: null },
+  { label: 'Root Cause', icon: Target, badge: null },
+  { label: 'Solutions', icon: FlaskConical, badge: null },
+  { label: 'Simulation', icon: Gauge, badge: null },
+  { label: 'Decisions', icon: PenLine, badge: null },
 ]
-
-const CASE_ROUTES: Record<string, string> = {
-  'Zarqa Cascade': '/case/zarqa-2025-08/graph',
-  'Amman Grid Dip': '/case/amman-grid-01/graph',
-  'Irbid Watch': '/case/irbid-watch-01/graph',
-}
 
 const dot: Record<Tone, string> = {
   danger: 'bg-danger',
@@ -48,22 +35,15 @@ const score: Record<Tone, string> = {
   neutral: 'text-muted',
 }
 
-export default function Sidebar() {
-  const running = useAppStore((s) => s.running)
-  const setRunning = useAppStore((s) => s.setRunning)
-  const startTour = useWizardStore((s) => s.startTour)
-  const navigate = useNavigate()
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [helpOpen, setHelpOpen] = useState(false)
-
-  const onRun = () => {
-    if (running) return
-    setRunning(true)
-    startTour()
-    navigate('/signals')
-    setTimeout(() => setRunning(false), 1600)
-  }
-
+export default function Sidebar({
+  onRun,
+  active,
+  onNavigate,
+}: {
+  onRun: () => void
+  active: string
+  onNavigate: (s: string) => void
+}) {
   return (
     <aside className="flex w-[248px] shrink-0 flex-col border-r border-border bg-sidebar">
       {/* brand */}
@@ -93,28 +73,22 @@ export default function Sidebar() {
           OPERATIONS
         </div>
         {OPS.map((item) => {
+          const on = active === item.label
           const Icon = item.icon
           return (
-            <NavLink
+            <button
               key={item.label}
-              to={item.to}
-              end={item.to === '/'}
-              className={({ isActive }) =>
-                `group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
-                  isActive ? 'bg-cardhi text-txt' : 'text-muted hover:bg-soft hover:text-txt'
-                }`
-              }
+              onClick={() => onNavigate(item.label)}
+              className={`group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
+                on ? 'bg-cardhi text-txt' : 'text-muted hover:bg-soft hover:text-txt'
+              }`}
             >
-              {({ isActive }) => (
-                <>
-                  <Icon className={`h-[18px] w-[18px] ${isActive ? 'text-blue' : 'text-muted group-hover:text-txt'}`} />
-                  <span className={isActive ? 'font-medium' : ''}>{item.label}</span>
-                  {item.badge && (
-                    <span className="ml-auto font-mono text-[11px] text-faint">{item.badge}</span>
-                  )}
-                </>
+              <Icon className={`h-[18px] w-[18px] ${on ? 'text-blue' : 'text-muted group-hover:text-txt'}`} />
+              <span className={on ? 'font-medium' : ''}>{item.label}</span>
+              {item.badge && (
+                <span className="ml-auto font-mono text-[11px] text-faint">{item.badge}</span>
               )}
-            </NavLink>
+            </button>
           )
         })}
 
@@ -122,7 +96,7 @@ export default function Sidebar() {
         {cases.map((c) => (
           <button
             key={c.name}
-            onClick={() => navigate(CASE_ROUTES[c.name] ?? '/')}
+            onClick={() => onNavigate(c.name)}
             className="group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
           >
             <span className={`h-2 w-2 rounded-full ${dot[c.tone]}`} />
@@ -134,17 +108,11 @@ export default function Sidebar() {
 
       {/* footer */}
       <div className="border-t border-border px-3 py-3">
-        <button
-          onClick={() => { setSettingsOpen(true); setHelpOpen(false) }}
-          className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
-        >
+        <button className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt">
           <Settings className="h-[18px] w-[18px]" />
           Settings
         </button>
-        <button
-          onClick={() => { setHelpOpen(true); setSettingsOpen(false) }}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
-        >
+        <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt">
           <HelpCircle className="h-[18px] w-[18px]" />
           Get Help
         </button>
@@ -158,14 +126,6 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
-
-      {/* drawers */}
-      <AnimatePresence>
-        <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      </AnimatePresence>
-      <AnimatePresence>
-        <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
-      </AnimatePresence>
     </aside>
   )
 }
