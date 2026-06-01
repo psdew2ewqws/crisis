@@ -13,6 +13,7 @@ const RootCausePage = lazy(() => import('./pages/RootCausePage'))
 const SolutionsPage = lazy(() => import('./pages/SolutionsPage'))
 const SimulationPage = lazy(() => import('./pages/SimulationPage'))
 const DecisionsPage = lazy(() => import('./pages/DecisionsPage'))
+const DeepAnalysisPage = lazy(() => import('./pages/DeepAnalysisPage'))
 
 function Loading() {
   return (
@@ -70,6 +71,7 @@ export default function App() {
     case 'Solutions': content = <SolutionsPage />; break
     case 'Simulation': content = <SimulationPage />; break
     case 'Decisions': content = <DecisionsPage />; break
+    case 'Deep Analysis': content = <DeepAnalysisPage />; break
     default: content = <DashboardView />
   }
 

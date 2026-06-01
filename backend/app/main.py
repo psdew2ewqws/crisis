@@ -49,6 +49,14 @@ try:
 except Exception:
     pass
 
+# v3 deep-reasoning endpoints: /api/forecast, /api/whys, /api/validate, /api/ask,
+# /api/suggest, /api/rootcause-graph
+try:
+    from . import api_v3
+    app.include_router(api_v3.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():
