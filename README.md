@@ -20,6 +20,27 @@ The **AEGIS Crisis Console** is the operator dashboard: a left command rail (ope
 
 ---
 
+## Live Deer Graph — connected to a real database (voc360)
+
+Beyond the demo dashboard, the system connects to a **live PostgreSQL database** — `voc360`, a real Jordanian government Voice-of-Customer platform — and runs the full **data source → graph → root cause** flow on real data. The **Incident Graph** view renders it live: 22k+ citizen signals across 150+ services are wired into a dependency graph, and the RIL problem-cluster pipeline surfaces the real **root causes** (urgent-service fees · the BRT bus · National Aid Fund delays · the Takaful platform · class sizes of 50 students…).
+
+![Live Deer Graph](screenshots/live-graph.png)
+
+The **Deer Graph flow** (a deer-flow-style staged pipeline) runs live and streams to the UI: `connect → ingest → graph → root-cause → recommend`. A Python / FastAPI backend (`backend/`) reads voc360 **read-only**, builds the graph from the real `the_data` + `ril_problem_clusters` tables, and ranks root causes by `member_count × severity`.
+
+**Run the backend:**
+
+```bash
+cd backend
+python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+cp .env.example .env          # add your voc360 DSN (never commit it)
+./.venv/bin/uvicorn app.main:app --reload --port 8000
+```
+
+Endpoints: `/api/health` · `/api/stats` · `/api/graph` · `/api/rootcause` · `/api/flow/run` (streamed NDJSON) · `/api/simulate`. The frontend **Incident Graph** view consumes them. Schema: [`docs/VOC360_SCHEMA.md`](docs/VOC360_SCHEMA.md).
+
+---
+
 ## Run the frontend
 
 ```bash

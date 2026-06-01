@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import {
   Zap,
   LayoutGrid,
@@ -36,8 +35,15 @@ const score: Record<Tone, string> = {
   neutral: 'text-muted',
 }
 
-export default function Sidebar({ onRun }: { onRun: () => void }) {
-  const [active, setActive] = useState('Dashboard')
+export default function Sidebar({
+  onRun,
+  active,
+  onNavigate,
+}: {
+  onRun: () => void
+  active: string
+  onNavigate: (s: string) => void
+}) {
   return (
     <aside className="flex w-[248px] shrink-0 flex-col border-r border-border bg-sidebar">
       {/* brand */}
@@ -72,7 +78,7 @@ export default function Sidebar({ onRun }: { onRun: () => void }) {
           return (
             <button
               key={item.label}
-              onClick={() => setActive(item.label)}
+              onClick={() => onNavigate(item.label)}
               className={`group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
                 on ? 'bg-cardhi text-txt' : 'text-muted hover:bg-soft hover:text-txt'
               }`}
@@ -90,7 +96,7 @@ export default function Sidebar({ onRun }: { onRun: () => void }) {
         {cases.map((c) => (
           <button
             key={c.name}
-            onClick={() => setActive(c.name)}
+            onClick={() => onNavigate(c.name)}
             className="group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
           >
             <span className={`h-2 w-2 rounded-full ${dot[c.tone]}`} />

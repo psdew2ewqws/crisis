@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+psycopg[binary]==3.2.4
+python-dotenv==1.0.1
+networkx==3.4.2
+pydantic==2.10.4
+# optional — the Deer Graph flow & Mesa simulation degrade gracefully if absent
+langgraph==0.2.60
+mesa==3.1.1
