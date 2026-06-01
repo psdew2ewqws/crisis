@@ -26,7 +26,9 @@ Beyond the demo dashboard, the system connects to a **live PostgreSQL database**
 
 ![Live Deer Graph](screenshots/live-graph.png)
 
-The **Deer Graph flow** (a deer-flow-style staged pipeline) runs live and streams to the UI: `connect → ingest → graph → root-cause → recommend`. A Python / FastAPI backend (`backend/`) reads voc360 **read-only**, builds the graph from the real `the_data` + `ril_problem_clusters` tables, and ranks root causes by `member_count × severity`.
+The **Deer Graph flow** runs on a real **LangGraph state graph** (the deer-flow pattern) and streams to the UI: `connect → ingest → graph → root-cause → recommend`. A **Mesa** agent-based simulation then models how the root cause propagates across the service graph — with vs without intervention. A Python / FastAPI backend (`backend/`) reads voc360 **read-only**, builds the graph from the real `the_data` + `ril_problem_clusters` tables, and ranks root causes by `member_count × severity`. Both engines degrade gracefully to pure-Python fallbacks if LangGraph/Mesa aren't installed.
+
+See [`docs/DEER_GRAPH_INTEGRATION.md`](docs/DEER_GRAPH_INTEGRATION.md) (how deer-flow's LangGraph flow was adapted), [`docs/MESA_SIMULATION.md`](docs/MESA_SIMULATION.md) (the ABM), and [`docs/DEER_GRAPH_SYSTEM.md`](docs/DEER_GRAPH_SYSTEM.md) (end-to-end).
 
 **Run the backend:**
 

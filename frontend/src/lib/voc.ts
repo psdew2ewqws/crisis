@@ -48,6 +48,23 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json() as Promise<T>
 }
 
+export interface SimSeries {
+  step: number
+  mean_negativity: number
+  complaint_volume: number
+  n_critical: number
+}
+export interface Sim {
+  before: { series: SimSeries[] }
+  after: { series: SimSeries[] }
+  delta: Record<string, number>
+  root_cause: { canonical_label_ar?: string; member_count?: number } | null
+  engine: string
+  mesa_available: boolean
+}
+export const getSimulate = (c?: string) =>
+  j<Sim>(`/api/simulate${c ? `?case=${encodeURIComponent(c)}` : ''}`, { method: 'POST' })
+
 export const getGraph = (c?: string) => j<Graph>(`/api/graph${c ? `?case=${encodeURIComponent(c)}` : ''}`)
 export const getRootCause = () => j<{ root_causes: RootCause[]; recommendation: string }>('/api/rootcause?limit=8')
 export const getStats = () => j<Record<string, number>>('/api/stats')

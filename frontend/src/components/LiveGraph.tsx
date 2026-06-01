@@ -11,8 +11,12 @@ import ReactFlow, {
   type NodeProps,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
-import { Zap, Loader2, Database, CheckCircle2, Circle } from 'lucide-react'
-import { getGraph, getRootCause, getHealth, runFlow, type Graph, type RootCause, type FlowEvent } from '../lib/voc'
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts'
+import { Zap, Loader2, Database, CheckCircle2, Circle, FlaskConical } from 'lucide-react'
+import {
+  getGraph, getRootCause, getHealth, getSimulate, runFlow,
+  type Graph, type RootCause, type FlowEvent, type Sim,
+} from '../lib/voc'
 
 const SEV: Record<string, string> = { alert: '#F04359', warn: '#FBBF24', calm: '#34D399', neutral: '#8B8D96' }
 const TAG: Record<string, string> = {
@@ -54,6 +58,30 @@ export default function LiveGraph() {
   const [flow, setFlow] = useState<Record<string, FlowEvent>>({})
   const [running, setRunning] = useState(false)
   const [rec, setRec] = useState<string | null>(null)
+  const [sim, setSim] = useState<Sim | null>(null)
+  const [simBusy, setSimBusy] = useState(false)
+
+  async function runSim() {
+    if (simBusy) return
+    setSimBusy(true)
+    try {
+      setSim(await getSimulate())
+    } catch (e) {
+      setErr(String(e))
+    } finally {
+      setSimBusy(false)
+    }
+  }
+
+  const simData = useMemo(() => {
+    if (!sim) return []
+    const a = sim.after.series
+    return sim.before.series.map((p, i) => ({
+      step: p.step,
+      before: +(p.mean_negativity * 100).toFixed(1),
+      after: +((a[i]?.mean_negativity ?? p.mean_negativity) * 100).toFixed(1),
+    }))
+  }, [sim])
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth({ ok: false }))
@@ -157,6 +185,46 @@ export default function LiveGraph() {
               })}
             </ol>
             {rec && <div className="mt-3 rounded-lg border border-blue/30 bg-blue/10 p-2.5 text-[12px] leading-snug text-txt" dir={isAr(rec) ? 'rtl' : 'ltr'}>{rec}</div>}
+          </div>
+
+          {/* mesa simulation */}
+          <div className="border-b border-border p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="font-mono text-[10px] tracking-[0.14em] text-faint">SIMULATION · MESA</span>
+              <button
+                onClick={runSim}
+                disabled={simBusy}
+                className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:bg-soft hover:text-txt disabled:opacity-50"
+              >
+                {simBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FlaskConical className="h-3 w-3" />}
+                {simBusy ? 'running' : 'simulate intervention'}
+              </button>
+            </div>
+            {sim ? (
+              <>
+                <ResponsiveContainer width="100%" height={110}>
+                  <LineChart data={simData} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
+                    <XAxis dataKey="step" tick={{ fill: '#62646D', fontSize: 9 }} tickLine={false} axisLine={false} interval={12} />
+                    <YAxis tick={{ fill: '#62646D', fontSize: 9 }} tickLine={false} axisLine={false} domain={[0, 60]} />
+                    <Line type="monotone" dataKey="before" stroke="#F04359" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="after" stroke="#34D399" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+                <div className="mt-1 flex items-center justify-between font-mono text-[10px]">
+                  <span className="flex items-center gap-1.5 text-danger"><span className="h-[2px] w-3 bg-danger" />no action</span>
+                  <span className="flex items-center gap-1.5 text-good"><span className="h-[2px] w-3 bg-good" />intervention</span>
+                </div>
+                <div className="mt-2 text-[11px] leading-snug text-muted">
+                  Negativity peaks at <span className="text-txt">{((sim.delta.peak_mean_negativity ?? 0) * 100).toFixed(0)}%</span>, settles in{' '}
+                  <span className="text-txt">{sim.delta.ticks_to_settle ?? 0}</span> ticks · critical services →{' '}
+                  <span className="text-good">{sim.delta.n_critical_final ?? 0}</span> · engine <span className="text-blue">{sim.engine}</span>
+                </div>
+              </>
+            ) : (
+              <p className="text-[11px] leading-snug text-muted">
+                Run a Mesa agent-based simulation of how the root cause propagates across the service graph — with vs without intervention.
+              </p>
+            )}
           </div>
 
           {/* root causes */}

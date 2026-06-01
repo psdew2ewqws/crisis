@@ -19,6 +19,21 @@ from fastapi.responses import StreamingResponse
 
 from . import db, graph_builder, rootcause
 
+# Optional advanced engines: the LangGraph "Deer Graph" flow and the Mesa
+# agent-based simulation. Both degrade gracefully to the inline versions below.
+try:
+    from . import deer_flow  # noqa: F401
+    _HAS_DEERFLOW = True
+except Exception:
+    deer_flow = None  # type: ignore
+    _HAS_DEERFLOW = False
+try:
+    from . import mesa_sim  # noqa: F401
+    _HAS_MESA = True
+except Exception:
+    mesa_sim = None  # type: ignore
+    _HAS_MESA = False
+
 app = FastAPI(title="AEGIS Deer Graph", version="1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -101,12 +116,23 @@ def _flow(case: str | None):
 
 @app.post("/api/flow/run")
 def flow_run(case: str | None = Query(default=None)):
+    """Stream the Deer Graph flow — the LangGraph engine when available, else inline."""
+    if _HAS_DEERFLOW:
+        def gen():
+            for frame in deer_flow.run_flow(case):
+                yield json.dumps(frame, ensure_ascii=False) + "\n"
+        return StreamingResponse(gen(), media_type="application/x-ndjson")
     return StreamingResponse(_flow(case), media_type="application/x-ndjson")
 
 
 # ---- lightweight propagation simulation (Mesa version arrives via workflow)
 @app.post("/api/simulate")
 def simulate(case: str | None = Query(default=None), steps: int = Query(default=24, ge=4, le=60)):
+    if _HAS_MESA:
+        try:
+            return mesa_sim.simulate(case, intervene=True)
+        except Exception:
+            pass  # fall back to the lightweight inline propagation model
     g = graph_builder.build_graph(case)
     services = [n for n in g["nodes"] if n["type"] == "service"]
     base = sum(n["value"] for n in services) or 1
