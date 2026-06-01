@@ -28,3 +28,6 @@ backend/.env
 .md2pdf.sh
 build_*.py
 gen_*.py
+
+# runtime cache (recomputed on first run)
+backend/data/
