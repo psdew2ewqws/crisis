@@ -14,7 +14,11 @@
 //   POST /api/decisions      append a decision
 //   POST /api/narrate        optional LLM narration (grounded fallback)
 
-const BASE = import.meta.env.VITE_API ?? 'http://127.0.0.1:8000'
+const BASE =
+  (import.meta.env.VITE_API as string | undefined) ??
+  (typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : 'http://127.0.0.1:8000')
 
 // ------------------------------------------------------------------ tokens
 // AEGIS palette (mirrors tailwind.config / voc.ts usage) so callers can map a
