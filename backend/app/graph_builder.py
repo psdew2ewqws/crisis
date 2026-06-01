@@ -5,6 +5,13 @@ from typing import Any
 
 from . import db
 
+try:
+    from . import cluster_link  # Track 1: real recovered cluster→service edges
+    _HAS_LINK = True
+except Exception:
+    cluster_link = None  # type: ignore
+    _HAS_LINK = False
+
 # ---- column-grounded queries ---------------------------------------------
 
 Q_SRC_SVC = """
@@ -146,9 +153,24 @@ def build_graph(case: str | None = None) -> dict[str, Any]:
                 severity=_tone_from_sev(c["severity_avg"]), label_ar=(c["canonical_label_ar"] or "")[:80],
                 members=c["member_count"], severity_avg=round(c["severity_avg"], 2))
             edges.append({"source": "rchub", "target": cid, "weight": c["member_count"], "kind": "cluster"})
-            m = _match_service(c["canonical_label_ar"] or "", services)
-            if m:
-                edges.append({"source": f"svc::{m}", "target": cid, "weight": c["member_count"], "kind": "root_cause"})
+            # REAL root-cause → service edges, recovered by text matching (Track 1)
+            real: list = []
+            if _HAS_LINK:
+                try:
+                    real = cluster_link.cluster_services(c["cluster_id"])
+                    nodes[cid]["signals"] = cluster_link.cluster_signals(c["cluster_id"])
+                except Exception:
+                    real = []
+            if real:
+                for svc, w in real:
+                    sid = f"svc::{svc}"
+                    if sid not in nodes:
+                        add(sid, type="service", label=svc, value=svc_tot.get(svc, w), severity="warn")
+                    edges.append({"source": sid, "target": cid, "weight": w, "kind": "root_cause"})
+            else:
+                m = _match_service(c["canonical_label_ar"] or "", services)
+                if m:
+                    edges.append({"source": f"svc::{m}", "target": cid, "weight": c["member_count"], "kind": "root_cause"})
 
     node_list = list(nodes.values())
     _layout(node_list)
