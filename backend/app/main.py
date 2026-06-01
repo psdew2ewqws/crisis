@@ -37,9 +37,25 @@ except Exception:
 app = FastAPI(title="AEGIS Deer Graph", version="1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?",
     allow_methods=["*"], allow_headers=["*"],
 )
+
+# v2 console endpoints: /api/signals, /api/kpis, /api/signal-volume,
+# /api/solutions, /api/decisions, /api/narrate, /api/graph2
+try:
+    from . import main_v2
+    app.include_router(main_v2.router)
+except Exception:
+    pass
+
+# v3 deep-reasoning endpoints: /api/forecast, /api/whys, /api/validate, /api/ask,
+# /api/suggest, /api/rootcause-graph
+try:
+    from . import api_v3
+    app.include_router(api_v3.router)
+except Exception:
+    pass
 
 
 @app.get("/api/health")

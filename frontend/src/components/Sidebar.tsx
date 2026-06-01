@@ -7,6 +7,7 @@ import {
   FlaskConical,
   Gauge,
   PenLine,
+  Brain,
   Settings,
   HelpCircle,
 } from 'lucide-react'
@@ -20,6 +21,7 @@ const OPS = [
   { label: 'Solutions', icon: FlaskConical, badge: null },
   { label: 'Simulation', icon: Gauge, badge: null },
   { label: 'Decisions', icon: PenLine, badge: null },
+  { label: 'Deep Analysis', icon: Brain, badge: null },
 ]
 
 const dot: Record<Tone, string> = {
