@@ -2,17 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* ── Dark theme (default) ── */
+:root,
+[data-theme='dark'] {
   color-scheme: dark;
+  --color-bg: #0A0A0B;
+  --color-sidebar: #0B0B0D;
+  --color-card: #131417;
+  --color-cardhi: #181A1E;
+  --color-border: #212228;
+  --color-soft: #1A1B20;
+  --color-txt: #ECEDEE;
+  --color-muted: #8B8D96;
+  --color-faint: #62646D;
 }
+
+/* ── Light theme ── */
+[data-theme='light'] {
+  color-scheme: light;
+  --color-bg: #F4F5F7;
+  --color-sidebar: #EBEDF0;
+  --color-card: #FFFFFF;
+  --color-cardhi: #F0F1F3;
+  --color-border: #D4D6DB;
+  --color-soft: #E8E9EC;
+  --color-txt: #1A1B1E;
+  --color-muted: #5F6368;
+  --color-faint: #9AA0A6;
+}
+
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
 }
+html {
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
 body {
   @apply bg-bg text-txt font-sans antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 .tnum {
   font-variant-numeric: tabular-nums;
@@ -23,11 +53,11 @@ body {
   height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #232428;
+  background: var(--color-border);
   border-radius: 9px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #2d2e34;
+  background: var(--color-muted);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -37,3 +67,34 @@ body {
 .recharts-surface:focus {
   outline: none;
 }
+
+/* Breathing glow animation for apex/root-cause elements */
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 8px 2px rgba(240, 67, 89, 0.3); }
+  50% { box-shadow: 0 0 20px 6px rgba(240, 67, 89, 0.6); }
+}
+.apex-glow {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* Edge flow animation for graph */
+@keyframes edgeFlow {
+  to { stroke-dashoffset: -20; }
+}
+.edge-animated {
+  stroke-dasharray: 10 5;
+  animation: edgeFlow 1s linear infinite;
+}
+
+/* Pulse animation for severity dots */
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+/* React Flow dark-theme overrides */
+.react-flow__attribution { display: none; }
+.react-flow__minimap { background: var(--color-card); border: 1px solid var(--color-border); border-radius: 8px; }
+.react-flow__controls { background: var(--color-card); border: 1px solid var(--color-border); border-radius: 8px; }
+.react-flow__controls-button { background: var(--color-card); border-bottom: 1px solid var(--color-border); fill: var(--color-muted); }
+.react-flow__controls-button:hover { background: var(--color-cardhi); }

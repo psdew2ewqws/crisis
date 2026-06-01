@@ -9,11 +9,13 @@ import {
   Tooltip,
 } from 'recharts'
 import { signalVolume } from '../lib/data'
+import { useChartColors } from '../stores/themeStore'
 
 const RANGES = ['Last 6h', '24 hours', '7 days']
 
 export default function SignalVolume() {
   const [range, setRange] = useState('Last 6h')
+  const c = useChartColors()
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <div className="mb-4 flex items-start justify-between">
@@ -46,10 +48,10 @@ export default function SignalVolume() {
               <stop offset="100%" stopColor="#3B82F6" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#1A1B20" strokeDasharray="3 3" vertical={false} />
+          <CartesianGrid stroke={c.gridStroke} strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="t"
-            tick={{ fill: '#62646D', fontSize: 11 }}
+            tick={{ fill: c.faint, fontSize: 11 }}
             tickLine={false}
             axisLine={false}
             interval={2}
@@ -59,13 +61,13 @@ export default function SignalVolume() {
           <Tooltip
             cursor={{ stroke: '#3B82F6', strokeWidth: 1, strokeDasharray: '3 3' }}
             contentStyle={{
-              background: '#131417',
-              border: '1px solid #212228',
+              background: c.card,
+              border: `1px solid ${c.border}`,
               borderRadius: 10,
               fontSize: 12,
             }}
-            labelStyle={{ color: '#8B8D96' }}
-            itemStyle={{ color: '#ECEDEE' }}
+            labelStyle={{ color: c.muted }}
+            itemStyle={{ color: c.txt }}
             formatter={(v) => [String(v), 'signals']}
           />
           <Area
@@ -74,7 +76,7 @@ export default function SignalVolume() {
             stroke="#3B82F6"
             strokeWidth={2.5}
             fill="url(#sv)"
-            activeDot={{ r: 4, fill: '#3B82F6', stroke: '#0A0A0B', strokeWidth: 2 }}
+            activeDot={{ r: 4, fill: '#3B82F6', stroke: c.bg, strokeWidth: 2 }}
           />
         </AreaChart>
       </ResponsiveContainer>

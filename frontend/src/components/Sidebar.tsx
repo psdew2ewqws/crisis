@@ -1,27 +1,39 @@
-import { useState } from 'react'
 import {
   Zap,
   LayoutGrid,
-  Activity,
-  Share2,
+  Radio,
+  GitBranch,
   Target,
+  Lightbulb,
   FlaskConical,
-  Gauge,
-  PenLine,
+  ShieldCheck,
   Settings,
   HelpCircle,
 } from 'lucide-react'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { AnimatePresence } from 'motion/react'
 import { cases, type Tone } from '../lib/data'
+import { useAppStore } from '../stores/appStore'
+import { useWizardStore } from '../stores/wizardStore'
+import SettingsDrawer from './SettingsDrawer'
+import HelpDrawer from './HelpDrawer'
 
 const OPS = [
-  { label: 'Dashboard', icon: LayoutGrid, badge: null },
-  { label: 'Signals', icon: Activity, badge: '6' },
-  { label: 'Incident Graph', icon: Share2, badge: null },
-  { label: 'Root Cause', icon: Target, badge: null },
-  { label: 'Solutions', icon: FlaskConical, badge: null },
-  { label: 'Simulation', icon: Gauge, badge: null },
-  { label: 'Decisions', icon: PenLine, badge: null },
+  { label: 'Dashboard', icon: LayoutGrid, badge: null, to: '/' },
+  { label: 'Signals', icon: Radio, badge: '6', to: '/signals' },
+  { label: 'Incident Graph', icon: GitBranch, badge: null, to: '/case/zarqa-2025-08/graph' },
+  { label: 'Root Cause', icon: Target, badge: null, to: '/case/zarqa-2025-08/root-cause' },
+  { label: 'Solutions', icon: Lightbulb, badge: null, to: '/case/zarqa-2025-08/solutions' },
+  { label: 'Simulation', icon: FlaskConical, badge: null, to: '/case/zarqa-2025-08/sim' },
+  { label: 'Decisions', icon: ShieldCheck, badge: null, to: '/case/zarqa-2025-08/decide' },
 ]
+
+const CASE_ROUTES: Record<string, string> = {
+  'Zarqa Cascade': '/case/zarqa-2025-08/graph',
+  'Amman Grid Dip': '/case/amman-grid-01/graph',
+  'Irbid Watch': '/case/irbid-watch-01/graph',
+}
 
 const dot: Record<Tone, string> = {
   danger: 'bg-danger',
@@ -36,8 +48,22 @@ const score: Record<Tone, string> = {
   neutral: 'text-muted',
 }
 
-export default function Sidebar({ onRun }: { onRun: () => void }) {
-  const [active, setActive] = useState('Dashboard')
+export default function Sidebar() {
+  const running = useAppStore((s) => s.running)
+  const setRunning = useAppStore((s) => s.setRunning)
+  const startTour = useWizardStore((s) => s.startTour)
+  const navigate = useNavigate()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  const onRun = () => {
+    if (running) return
+    setRunning(true)
+    startTour()
+    navigate('/signals')
+    setTimeout(() => setRunning(false), 1600)
+  }
+
   return (
     <aside className="flex w-[248px] shrink-0 flex-col border-r border-border bg-sidebar">
       {/* brand */}
@@ -67,22 +93,28 @@ export default function Sidebar({ onRun }: { onRun: () => void }) {
           OPERATIONS
         </div>
         {OPS.map((item) => {
-          const on = active === item.label
           const Icon = item.icon
           return (
-            <button
+            <NavLink
               key={item.label}
-              onClick={() => setActive(item.label)}
-              className={`group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
-                on ? 'bg-cardhi text-txt' : 'text-muted hover:bg-soft hover:text-txt'
-              }`}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) =>
+                `group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
+                  isActive ? 'bg-cardhi text-txt' : 'text-muted hover:bg-soft hover:text-txt'
+                }`
+              }
             >
-              <Icon className={`h-[18px] w-[18px] ${on ? 'text-blue' : 'text-muted group-hover:text-txt'}`} />
-              <span className={on ? 'font-medium' : ''}>{item.label}</span>
-              {item.badge && (
-                <span className="ml-auto font-mono text-[11px] text-faint">{item.badge}</span>
+              {({ isActive }) => (
+                <>
+                  <Icon className={`h-[18px] w-[18px] ${isActive ? 'text-blue' : 'text-muted group-hover:text-txt'}`} />
+                  <span className={isActive ? 'font-medium' : ''}>{item.label}</span>
+                  {item.badge && (
+                    <span className="ml-auto font-mono text-[11px] text-faint">{item.badge}</span>
+                  )}
+                </>
               )}
-            </button>
+            </NavLink>
           )
         })}
 
@@ -90,7 +122,7 @@ export default function Sidebar({ onRun }: { onRun: () => void }) {
         {cases.map((c) => (
           <button
             key={c.name}
-            onClick={() => setActive(c.name)}
+            onClick={() => navigate(CASE_ROUTES[c.name] ?? '/')}
             className="group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
           >
             <span className={`h-2 w-2 rounded-full ${dot[c.tone]}`} />
@@ -102,11 +134,17 @@ export default function Sidebar({ onRun }: { onRun: () => void }) {
 
       {/* footer */}
       <div className="border-t border-border px-3 py-3">
-        <button className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt">
+        <button
+          onClick={() => { setSettingsOpen(true); setHelpOpen(false) }}
+          className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
+        >
           <Settings className="h-[18px] w-[18px]" />
           Settings
         </button>
-        <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt">
+        <button
+          onClick={() => { setHelpOpen(true); setSettingsOpen(false) }}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted transition-colors hover:bg-soft hover:text-txt"
+        >
           <HelpCircle className="h-[18px] w-[18px]" />
           Get Help
         </button>
@@ -120,6 +158,14 @@ export default function Sidebar({ onRun }: { onRun: () => void }) {
           </div>
         </div>
       </div>
+
+      {/* drawers */}
+      <AnimatePresence>
+        <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      </AnimatePresence>
+      <AnimatePresence>
+        <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
+      </AnimatePresence>
     </aside>
   )
 }
