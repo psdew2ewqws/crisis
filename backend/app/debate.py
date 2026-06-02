@@ -40,6 +40,10 @@ try:
     from . import memory_light  # LightMem-AEGIS consolidated topic memory
 except Exception:  # pragma: no cover
     memory_light = None  # type: ignore
+try:
+    from . import rootcause  # top-K clusters for the national deep-research swarm
+except Exception:  # pragma: no cover
+    rootcause = None  # type: ignore
 
 router = APIRouter()
 NDJSON = "application/x-ndjson"
@@ -340,21 +344,177 @@ def run_debate(stype: str, key: Optional[str]) -> Iterator[Dict[str, Any]]:
 
 
 # =========================================================================== #
+# FULL DEEP-RESEARCH SWARM — a large, data-driven panel across the top         #
+# clusters: per-topic delegates + a domain-expert panel + cross-cluster        #
+# synthesis. The agent count scales with the data (≈ topics×clusters + experts #
+# + roles → tens of voices), mirroring MiroFish's "scale agents to the data".  #
+# =========================================================================== #
+EXPERTS: List[Dict[str, str]] = [
+    {"key": "data", "name": "خبير البيانات",
+     "task": "من منظور البيانات: أيّ المحاور يتصدّر بحجم البلاغات والشدّة، ولماذا؟ جملتان."},
+    {"key": "service", "name": "خبير الخدمات",
+     "task": "من منظور تشغيل الخدمات: ما القاسم المشترك بين المحاور وأيّ جهة ينبغي إشراكها؟ جملتان."},
+    {"key": "citizen", "name": "ممثّل المواطن",
+     "task": "من منظور المواطن: أيّ مشكلة تمسّ حياته اليومية أكثر وتستحق الأولوية؟ جملتان."},
+    {"key": "ops", "name": "خبير التنفيذ",
+     "task": "من منظور التنفيذ: ما المحور الأسرع قابليةً للمعالجة بأثر ملموس؟ جملتان."},
+    {"key": "risk", "name": "مدقّق المخاطر",
+     "task": "من منظور المخاطر: أيّ الاستنتاجات تحقّقها ضعيف ويحتاج تدقيقًا أعمق قبل القرار؟ جملتان."},
+    {"key": "priority", "name": "محلّل الأولويات",
+     "task": "رتّب المحاور حسب الأولوية (الأثر × قابلية التنفيذ) في جملة واحدة."},
+]
+
+
+def _det_expert(ex_key: str, findings: List[Dict[str, Any]]) -> str:
+    """Deterministic Arabic expert opinion from the cross-cluster findings."""
+    if not findings:
+        return "لا توجد محاور كافية لإبداء رأي."
+    top = findings[0]
+    names = "، ".join(f"«{f['label']}»" for f in findings[:3])
+    weak = [f for f in findings if str(f.get("verdict")).lower() in ("weak", "ضعيف", "insufficient", "غير كافٍ")]
+    if ex_key == "data":
+        return (f"من منظور البيانات، يتصدّر «{top['label']}» بـ{top['members']} بلاغًا، "
+                f"وهو الأعلى تركيزًا بين {len(findings)} محورًا قيد البحث.")
+    if ex_key == "service":
+        return ("من منظور الخدمات، تتقاطع هذه المحاور غالبًا عند بطء الإجراءات وضعف الاستجابة؛ "
+                "يلزم إشراك الجهات المالكة مبكرًا وتوحيد المتابعة.")
+    if ex_key == "citizen":
+        return (f"من منظور المواطن، الأولوية لـ«{top['label']}» لأنها الأكثر تكرارًا في الشكاوى "
+                f"وتمسّ الخدمة اليومية مباشرة.")
+    if ex_key == "ops":
+        return (f"من منظور التنفيذ، أقترح البدء بـ«{top['label']}» لوضوح جذرها وإمكان قياس الأثر "
+                f"عبر انخفاض البلاغات بعد التدخّل.")
+    if ex_key == "risk":
+        if weak:
+            return (f"تحذير: {len(weak)} من المحاور تقييم تحقّقها ضعيف "
+                    f"(منها «{weak[0]['label']}»)؛ يلزم تدقيق أعمق قبل تثبيت القرار.")
+        return "المخاطر مقبولة نسبيًا؛ مستويات التحقّق كافية للمضي مع المتابعة."
+    # priority
+    return f"ترتيب الأولوية المقترح: {names} — بدءًا بالأعلى أثرًا وقابليةً للتنفيذ."
+
+
+def run_deep_research(top_k: int = 5) -> Iterator[Dict[str, Any]]:
+    """Stream a full multi-cluster swarm: plan → per-cluster delegates+analyst →
+    expert panel → cross-cluster synthesis."""
+    clusters: List[Dict[str, Any]] = []
+    if rootcause is not None:
+        try:
+            clusters = rootcause.rank_root_causes(top_k) or []
+        except Exception:
+            clusters = []
+    if not clusters:
+        yield {"type": "error", "error": "لا توجد محاور كافية لبدء البحث العميق."}
+        return
+
+    using_llm = bool(llm and llm.available())
+    yield {
+        "type": "plan",
+        "clusters": len(clusters),
+        "engine": "llm" if using_llm else "grounded",
+        "model": (llm.LLM_MODEL if (using_llm and llm) else None),
+        "agenda": [(c.get("label_ar") or c.get("label_en") or c.get("cluster_id", "")[:8]) for c in clusters],
+        "memory_engine": "LightMem",
+    }
+
+    findings: List[Dict[str, Any]] = []
+    agents = 0
+    for ci, c in enumerate(clusters):
+        cid = c.get("cluster_id")
+        if not cid:
+            continue
+        d = build_dossier("cluster", cid)
+        if not d:
+            continue
+        s = d["subject"]
+        facts = _facts_block(d)
+        label = _short_label(d)
+        mem = d.get("memory") or []
+        yield {"type": "cluster", "index": ci, "label": label, "cluster_id": cid,
+               "members": s.get("members"), "topics": len(mem)}
+
+        # per-topic delegates for this cluster
+        for m in mem[:5]:
+            text = None
+            if using_llm:
+                try:
+                    text = llm.chat(_BASE_SYS + f" دورك: مندوب محور «{m.get('topic')}».",
+                                    f"الأدلة:\n{facts}\n\nلماذا يستحق محور «{m.get('topic')}» ({m.get('count')} بلاغ) الاهتمام؟ جملة واحدة.",
+                                    temperature=0.4, max_tokens=90, timeout=9)
+                except Exception:
+                    text = None
+            eng = "llm" if text else "grounded"
+            if not text:
+                text = f"محور «{m.get('topic')}» ({m.get('count')} بلاغ): {_short(m.get('summary'), words=18, chars=140)}"
+            agents += 1
+            yield {"type": "turn", "group": label, "role": "delegate",
+                   "agent": f"مندوب · {m.get('topic')}", "text": text, "engine": eng}
+
+        # a quick analyst verdict for this cluster
+        atext = _llm_turn(ROLES[0], facts, []) if using_llm else None
+        aeng = "llm" if atext else "grounded"
+        if not atext:
+            atext = _det_turn("analyst", d)
+        agents += 1
+        yield {"type": "turn", "group": label, "role": "analyst", "agent": "المحلّل", "text": atext, "engine": aeng}
+
+        findings.append({"label": label, "members": s.get("members"),
+                         "verdict": (d.get("validation") or {}).get("verdict")})
+
+    # ── expert panel (cross-cluster) ──
+    yield {"type": "phase", "phase": "expert_panel", "label": "لجنة الخبراء"}
+    panel_ctx = "أبرز المحاور قيد البحث:\n" + "\n".join(
+        f"- «{f['label']}» ({f['members']} بلاغ، تقييم {VERDICT_AR.get(str(f['verdict']).lower(), f['verdict'])})"
+        for f in findings)
+    transcript: List[Dict[str, str]] = []
+    for ex in EXPERTS:
+        text = None
+        if using_llm:
+            try:
+                prior = "\n".join(f"{t['name']}: {t['text']}" for t in transcript[-4:]) or "(بداية النقاش)"
+                text = llm.chat(_BASE_SYS + f" دورك: {ex['name']}.",
+                                f"{panel_ctx}\n\nالنقاش:\n{prior}\n\nدورك ({ex['name']}): {ex['task']}",
+                                temperature=0.45, max_tokens=130, timeout=10)
+            except Exception:
+                text = None
+        eng = "llm" if text else "grounded"
+        if not text:
+            text = _det_expert(ex["key"], findings)
+        transcript.append({"name": ex["name"], "text": text})
+        agents += 1
+        yield {"type": "turn", "group": "لجنة الخبراء", "role": ex["key"], "agent": ex["name"], "text": text, "engine": eng}
+
+    # ── cross-cluster synthesis ──
+    top = findings[0] if findings else {}
+    synth = (f"خلاصة البحث العميق عبر {len(findings)} محورًا: الأولوية القصوى لـ«{top.get('label','')}» "
+             f"({top.get('members',0)} بلاغ). الخطة: توجيه أبرز ثلاثة محاور إلى جهاتها المالكة، "
+             f"معالجة جذورها بالتوازي، والتركيز التنفيذي الأول على المحور الأعلى أثرًا، ثم قياس انخفاض البلاغات.")
+    agents += 1
+    yield {"type": "synthesis", "role": "synthesizer", "agent": "المُنسّق · تقرير البحث العميق",
+           "text": synth, "engine": "grounded", "agents": agents,
+           "clusters": len(findings)}
+    yield {"type": "done", "agents": agents}
+
+
+# =========================================================================== #
 # Route.                                                                      #
 # =========================================================================== #
 class DebateIn(BaseModel):
     type: str = "all"
     key: Optional[str] = None
-    rounds: Optional[int] = 1  # reserved for future multi-round
+    rounds: Optional[int] = 1   # reserved for future multi-round
+    mode: str = "single"        # "single" = focused debate · "deep" = full multi-cluster swarm
+    top_k: int = 5              # deep mode: how many top clusters to convene
 
 
 @router.post("/api/debate")
 def debate(body: DebateIn) -> StreamingResponse:
     stype = body.type if body.type in ("service", "cluster", "all") else "all"
+    deep = (body.mode or "single").lower() == "deep"
 
     def gen() -> Iterator[bytes]:
         try:
-            for ev in run_debate(stype, body.key):
+            stream = run_deep_research(max(2, min(8, body.top_k))) if deep else run_debate(stype, body.key)
+            for ev in stream:
                 yield (json.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8")
         except Exception as e:  # never break the stream
             yield (json.dumps({"type": "error", "error": str(e)}, ensure_ascii=False) + "\n").encode("utf-8")
@@ -362,4 +522,4 @@ def debate(body: DebateIn) -> StreamingResponse:
     return StreamingResponse(gen(), media_type=NDJSON)
 
 
-__all__ = ["router", "run_debate", "build_dossier"]
+__all__ = ["router", "run_debate", "run_deep_research", "build_dossier"]

@@ -610,10 +610,12 @@ export default function DeepAnalysisPage() {
     debateAbortRef.current = ac
     try {
       await streamDebate(
-        debateQuery,
+        // Deep Analysis runs the FULL multi-cluster deep-research swarm.
+        { ...debateQuery, mode: 'deep', top_k: 6 },
         (e) => {
-          if (e.type === 'dossier') setDebateDossier(e)
-          else if (e.type === 'turn' || e.type === 'synthesis') setDebateTurns((xs) => [...xs, e])
+          if (e.type === 'dossier' || e.type === 'plan') setDebateDossier(e)
+          else if (e.type === 'turn' || e.type === 'synthesis' || e.type === 'cluster' || e.type === 'phase')
+            setDebateTurns((xs) => [...xs, e])
         },
         ac.signal,
       )
@@ -1642,6 +1644,33 @@ function AskPanel({
           {/* streamed agent turns as RTL Arabic chat bubbles */}
           <div className="space-y-2">
             {debateTurns.map((turn, i) => {
+              // deep-research dividers: cluster header + expert-panel phase
+              if (turn.type === 'cluster') {
+                return (
+                  <div
+                    key={i}
+                    dir="rtl"
+                    className="mt-3 flex items-center gap-2 border-t border-border/60 pt-2.5 text-[11.5px] font-semibold text-txt"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: '#22D3EE' }} />
+                    محور: {turn.label}
+                    <span className="font-mono text-[9px] text-faint">
+                      {turn.members} بلاغ · {turn.topics} موضوعات
+                    </span>
+                  </div>
+                )
+              }
+              if (turn.type === 'phase') {
+                return (
+                  <div
+                    key={i}
+                    dir="rtl"
+                    className="mt-3 flex items-center gap-2 border-t border-[#A78BFA]/40 pt-2.5 text-[11.5px] font-semibold text-[#A78BFA]"
+                  >
+                    <MessagesSquare className="h-3 w-3" /> {turn.label || 'لجنة الخبراء'}
+                  </div>
+                )
+              }
               const col = ROLE_COLOR[turn.role ?? ''] ?? AEGIS.muted
               const isSynth = turn.type === 'synthesis'
               return (

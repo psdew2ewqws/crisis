@@ -171,7 +171,7 @@ export const getProof = (p: { type: 'cluster' | 'service' | 'all'; key: string; 
 
 // ── Multi-agent DEBATE (NDJSON stream of agents arguing) ──────────────────────
 export interface DebateEvent {
-  type: 'dossier' | 'turn' | 'synthesis' | 'done' | 'error'
+  type: 'dossier' | 'turn' | 'synthesis' | 'done' | 'error' | 'plan' | 'cluster' | 'phase'
   role?: string
   agent?: string
   text?: string
@@ -185,11 +185,22 @@ export interface DebateEvent {
   citations?: { type: string; id?: string; label?: string; text?: string; weight?: number }[]
   report_url?: string
   error?: string
+  // deep-research (mode:'deep') fields
+  group?: string
+  label?: string
+  phase?: string
+  agents?: number
+  clusters?: number
+  agenda?: string[]
+  index?: number
+  members?: number
+  topics?: number
 }
 
 // Streams POST /api/debate, invoking onEvent per NDJSON line. Resolves when done.
+// mode 'deep' runs the full multi-cluster swarm (delegates + expert panel + synthesis).
 export async function streamDebate(
-  body: { type: 'cluster' | 'service' | 'all'; key?: string },
+  body: { type: 'cluster' | 'service' | 'all'; key?: string; mode?: 'single' | 'deep'; top_k?: number },
   onEvent: (e: DebateEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
