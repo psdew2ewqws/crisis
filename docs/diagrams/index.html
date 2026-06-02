@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AEGIS Crisis Console — Workflow Diagrams</title>
+<style>
+  :root { --bg:#0A0A0B; --card:#131417; --border:#212228; --txt:#ECEDEE; --muted:#8B8D96; --blue:#3B82F6; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--txt);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .cover { padding:64px 56px 40px; border-bottom:1px solid var(--border); }
+  .cover h1 { margin:0 0 8px; font-size:34px; letter-spacing:-0.02em; }
+  .cover p { margin:4px 0; color:var(--muted); font-size:15px; }
+  .badge { display:inline-block; margin-top:14px; padding:4px 10px; border:1px solid var(--blue);
+    border-radius:999px; color:var(--blue); font-size:12px; letter-spacing:0.08em; }
+  .diagram { padding:48px 56px; border-bottom:1px solid var(--border); page-break-after: always; }
+  .diagram:last-child { border-bottom:none; }
+  .diagram h2 { margin:0 0 4px; font-size:22px; }
+  .diagram .sub { margin:0 0 22px; color:var(--muted); font-size:13.5px; }
+  .frame { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:24px;
+    display:flex; justify-content:center; align-items:center; }
+  .frame img { max-width:100%; height:auto; }
+  .num { color:var(--blue); font-variant-numeric: tabular-nums; margin-right:10px; }
+  footer { padding:28px 56px 60px; color:var(--muted); font-size:12.5px; }
+  @media print {
+    .cover { page-break-after: always; }
+    .frame { background:#fff; border-color:#ddd; }  /* lighter frame prints cleaner */
+  }
+</style>
+</head>
+<body>
+  <div class="cover">
+    <h1>AEGIS Crisis Console</h1>
+    <p>System Workflow Diagrams — companion to <code>docs/SYSTEM_WORKFLOW_MAP.md</code></p>
+    <p>Generated from the <code>dev</code> branch · voc360 → graph → root cause → recommendation</p>
+    <span class="badge">7 DIAGRAMS · SVG + PNG + PDF</span>
+  </div>
+
+  <section class="diagram">
+    <h2><span class="num">01</span>Top-level system map</h2>
+    <p class="sub">Browser → FastAPI routers → optional engines → voc360 (read-only).</p>
+    <div class="frame"><img src="01-system-map.svg" alt="System map" /></div>
+  </section>
+
+  <section class="diagram">
+    <h2><span class="num">02</span>Backend app composition</h2>
+    <p class="sub">main.py mounts each router behind try/except; engines are optional.</p>
+    <div class="frame"><img src="02-app-composition.svg" alt="App composition" /></div>
+  </section>
+
+  <section class="diagram">
+    <h2><span class="num">03</span>Deer Graph flow (streamed pipeline)</h2>
+    <p class="sub">connect → ingest → graph → rootcause → recommend; LangGraph or pure-Python fallback.</p>
+    <div class="frame"><img src="03-deer-graph-flow.svg" alt="Deer Graph flow" /></div>
+  </section>
+
+  <section class="diagram">
+    <h2><span class="num">04</span>v3 deep-reasoning engines</h2>
+    <p class="sub">forecast · whys · validate · ask · suggest — every box has a grounded fallback.</p>
+    <div class="frame"><img src="04-v3-reasoning.svg" alt="v3 reasoning" /></div>
+  </section>
+
+  <section class="diagram">
+    <h2><span class="num">05</span>Multi-agent debate (sequence)</h2>
+    <p class="sub">analyst → advocate → skeptic → synthesizer, over one grounded dossier.</p>
+    <div class="frame"><img src="05-debate-sequence.svg" alt="Debate sequence" /></div>
+  </section>
+
+  <section class="diagram">
+    <h2><span class="num">06</span>Run Analysis — live streaming (sequence)</h2>
+    <p class="sub">NDJSON FlowEvents drive the RunProgress overlay stage-by-stage.</p>
+    <div class="frame"><img src="06-run-analysis-sequence.svg" alt="Run analysis sequence" /></div>
+  </section>
+
+  <section class="diagram">
+    <h2><span class="num">07</span>Operator journey (master workflow)</h2>
+    <p class="sub">Dashboard → Run → Graph → Root Cause → Solutions → Simulation → Decisions.</p>
+    <div class="frame"><img src="07-operator-journey.svg" alt="Operator journey" /></div>
+  </section>
+
+  <footer>
+    AEGIS Crisis Console · diagrams rendered with Mermaid CLI · sources in <code>docs/diagrams/*.mmd</code>
+  </footer>
+</body>
+</html>

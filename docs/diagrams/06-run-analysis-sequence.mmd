@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant U as User
+    participant App as App.tsx (runAnalysis)
+    participant V as voc.ts runFlow()
+    participant API as /api/flow/run
+    participant DG as deer_flow
+    U->>App: click "Run Analysis"
+    App->>App: setRun(active, service)
+    App->>V: for await (ev of runFlow(service))
+    V->>API: POST /api/flow/run?case=service
+    API->>DG: run_flow(case)
+    loop each stage
+        DG-->>API: {stage, status:"running", detail}
+        API-->>V: NDJSON line
+        V-->>App: yield FlowEvent → update RunProgress overlay
+        DG-->>API: {stage, status:"done", detail, data}
+        API-->>V: NDJSON line
+        V-->>App: yield → tick stage to done
+    end
+    Note over App: recommend.done.detail → run.recommendation (shown in overlay)

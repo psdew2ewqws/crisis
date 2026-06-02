@@ -5,6 +5,17 @@ frontend/dist/
 dist/
 *.log
 
+# python backend
+backend/.venv/
+**/__pycache__/
+*.pyc
+
+# secrets — NEVER commit real DB credentials
+.env
+backend/.env
+*.env
+!*.env.example
+
 # os / editor
 .DS_Store
 .vscode/
@@ -17,3 +28,9 @@ dist/
 .md2pdf.sh
 build_*.py
 gen_*.py
+
+# QA / verification screenshots (regenerated on demand, not source)
+crisis-*.png
+
+# runtime cache (recomputed on first run)
+backend/data/

@@ -1,0 +1,17 @@
+flowchart TD
+    O([Open app]) --> ON{onboarded?}
+    ON -->|no| OB[Onboarding] --> DASH
+    ON -->|yes| DASH
+
+    DASH["1. DASHBOARD<br/>KPIs · signal volume · signals table<br/>(pick a service = CASE)"]
+    DASH -->|Run Analysis| FLOW["2. DEER GRAPH RUN (streamed)<br/>connect→ingest→graph→rootcause→recommend"]
+    FLOW --> GRAPH["3. INCIDENT GRAPH<br/>live Source→Service→Gov + RIL clusters"]
+    GRAPH -->|click node| PROOF["PROOF drill-down<br/>why-chain · validation · evidence · forecast"]
+
+    DASH --> SIG["SIGNALS explorer<br/>filter the_data"]
+    GRAPH --> RC["4. ROOT CAUSE<br/>ranked clusters + evidence"]
+    RC --> SOL["5. SOLUTIONS<br/>cause→countermeasure, feasibility/impact"]
+    SOL --> SIM["6. SIMULATION<br/>before/after intervention (Mesa)"]
+    SIM --> DEC["7. DECISIONS<br/>log + authorize (PATCH gate)"]
+    SOL --> DEEP["DEEP ANALYSIS<br/>forecast · escalations · suggest · DEBATE"]
+    DEC --> OUT["Outcome / learn (wizard-only)"]

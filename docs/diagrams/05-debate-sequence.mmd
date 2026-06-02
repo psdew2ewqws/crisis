@@ -1,0 +1,16 @@
+sequenceDiagram
+    participant UI
+    participant D as debate.router
+    participant P as proof helpers
+    participant L as llm (local, optional)
+    UI->>D: POST /api/debate {type,key,mode}
+    D->>P: build_dossier (subject, why, validation, evidence, memory, forecast)
+    D-->>UI: event: dossier
+    loop rounds (analyst→advocate→skeptic)
+        D->>L: chat(persona prompt, dossier facts)
+        L-->>D: argument (or deterministic grounded fallback)
+        D-->>UI: event: turn {role, text, engine}
+    end
+    D->>L: synthesizer weighs debate
+    D-->>UI: event: synthesis {verdict, confidence, citations}
+    D-->>UI: event: done {report_url}

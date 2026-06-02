@@ -1,79 +1,41 @@
-# Crisis-Solving Brain — Backend
+# AEGIS Deer Graph — Backend
 
-**FastAPI + LangGraph + In-Memory Repos** | Zarqa Water Cascade MVP
+A FastAPI service that connects to the **voc360** Voice-of-Customer database (read-only) and runs the live **data source → graph → root cause** flow.
 
-## Quick Start
+## Run
 
 ```bash
-cd crisis/backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Verify environment
-python scripts/check_env.py
-
-# Run unit tests
-pytest tests/unit -v
-
-# Run full MVP acceptance test (headless)
-python scripts/run_demo.py --full
-
-# Start API server
-uvicorn app.main:app --reload --port 8000
+python3 -m venv .venv
+./.venv/bin/pip install -r requirements.txt
+cp .env.example .env          # fill in VOC_DSN (never commit the real .env)
+./.venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-## API Endpoints (17 total)
+## Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check |
-| GET | `/api/v1/incidents` | List incidents |
-| GET | `/api/v1/incidents/{id}` | Get incident |
-| GET | `/api/v1/incidents/{id}/graph` | Incident dependency graph (React Flow) |
-| GET | `/api/v1/incidents/{id}/root-cause` | Root-cause analysis |
-| POST | `/api/v1/incidents/{id}/run` | Run full 9-step loop |
-| GET | `/api/v1/signals` | List signals |
-| POST | `/api/v1/signals` | Ingest new signal |
-| GET | `/api/v1/risk` | National risk index |
-| GET | `/api/v1/solutions/{id}` | List ranked solutions |
-| POST | `/api/v1/solutions/{id}/generate` | Generate candidate solutions |
-| POST | `/api/v1/simulations` | Run before/after simulation |
-| GET | `/api/v1/simulations/{id}` | Get simulation result |
-| POST | `/api/v1/decisions` | Authorize a decision (human gate) |
-| GET | `/api/v1/decisions/{id}` | Get decision |
-| GET | `/api/v1/sources` | List registered sources |
-| POST | `/api/v1/sources` | Register a new source |
-| POST | `/api/v1/sources/{id}/activate` | Activate a source |
-| DELETE | `/api/v1/sources/{id}` | Remove a source |
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/health` | voc360 connectivity |
+| GET | `/api/stats` | row counts (signals, services, clusters…) |
+| GET | `/api/cases` | selectable cases (services + top root causes) |
+| GET | `/api/graph?case=` | the live dependency graph (nodes + edges) |
+| GET | `/api/rootcause?limit=` | ranked RIL problem clusters + recommendation |
+| POST | `/api/flow/run?case=` | the Deer Graph flow, streamed as NDJSON stages |
+| POST | `/api/simulate?case=` | sentiment-propagation simulation (before/after) |
 
-## Architecture
+## Layout
 
 ```
 app/
-├── core/          # Config, settings
-├── llm/           # Ollama client (gemma4:26B, nomic-embed-text)
-├── engine/        # Pure algorithms (graph, rootcause, risk, anomaly, sim)
-├── swarm/         # LangGraph 9-step loop (ingest→...→learn)
-├── packs/         # Domain Packs (water/)
-├── sources/       # Source connectors (SCADA, 911, hospital, traffic, weather)
-├── repositories/  # Data access (memory/ active, postgres/ deferred)
-├── services/      # Application layer
-├── api/           # REST + WebSocket
-└── main.py        # FastAPI app factory
+├── main.py           # FastAPI app + endpoints + the streamed flow
+├── db.py             # read-only psycopg connection to voc360
+├── graph_builder.py  # Source → Service → Governorate + RIL root-cause clusters
+└── rootcause.py      # rank ril_problem_clusters by member_count × severity
 ```
 
-## Key Design Decisions
+The graph is built entirely from real tables: `the_data` (signals) and
+`ril_problem_clusters` / `ril_cluster_members` / `ril_text_segments` (the RIL
+root-cause clustering pipeline). See `../docs/VOC360_SCHEMA.md`.
 
-1. **Engine is pure** — `app/engine/` has zero I/O, no imports from repos/API/LLM
-2. **DB is deferred** — In-memory repos seeded from `data/seeds/zarqa.json`; flip `REPO_BACKEND=postgres` later
-3. **LLM is local Ollama** — `gemma4:26B` for chat, `nomic-embed-text` for embeddings
-4. **Numbers from engine, prose from LLM** — The root-cause apex (PIPE-ZN-44) is computed, not hallucinated
-
-## MVP Acceptance
-
-```
-✓ Root cause: PIPE-ZN-44 (not the loud 911 surge)
-✓ Simulation: risk 84 → 22 (validated fix)
-✓ Decision: authorized by commander
-✓ Audit artifact: persisted to data/artifacts/
-```
+> Security: the service enforces a read-only session and reads its DSN from
+> `VOC_DSN` (in `.env`, which is git-ignored). No credentials live in code.
