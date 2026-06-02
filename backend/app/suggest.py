@@ -117,6 +117,43 @@ def _sid(intent: str, params: Dict[str, Any]) -> str:
     return "sg_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
 
 
+# Arabic section label per intent — lets the frontend group suggestions.
+_CATEGORY_BY_INTENT: Dict[str, str] = {
+    "root_cause_rank": "الأسباب الجذرية",
+    "why_chain": "الأسباب الجذرية",
+    "cluster_subthemes": "الأسباب الجذرية",
+    "root_cause": "الأسباب الجذرية",
+    "forecast_volume": "التنبؤ والاتجاهات",
+    "escalation_scan": "التنبؤ والاتجاهات",
+    "trend": "التنبؤ والاتجاهات",
+    "recent_spike": "التنبؤ والاتجاهات",
+    "temporal_onset": "التنبؤ والاتجاهات",
+    "compare_services": "المقارنة والقياس",
+    "metric_breakdown": "المقارنة والقياس",
+    "count": "المقارنة والقياس",
+    "source_channel": "المقارنة والقياس",
+    "citizen_voice": "أصوات المواطنين",
+    "sentiment": "أصوات المواطنين",
+    "validate": "التحقّق والحلول",
+    "solution": "التحقّق والحلول",
+    "owner": "التحقّق والحلول",
+    "national_summary": "نظرة عامة",
+    "top_problems": "نظرة عامة",
+    # cluster / service-scoped intents
+    "service_clusters": "الأسباب الجذرية",
+    "cluster_services": "المقارنة والقياس",
+    "case_validation": "التحقّق والحلول",
+    "sim_impact": "التحقّق والحلول",
+    "temporal_trend": "التنبؤ والاتجاهات",
+    "forecast_sentiment": "التنبؤ والاتجاهات",
+}
+
+
+def _category(intent: str) -> str:
+    """Arabic section label for an intent (frontend grouping); default 'عام'."""
+    return _CATEGORY_BY_INTENT.get(intent, "عام")
+
+
 def _mk(
     q: str,
     intent: str,
@@ -133,6 +170,7 @@ def _mk(
         "id": _sid(intent, params),
         "q": q,
         "intent": intent,
+        "category": _category(intent),
         "params": params,
         "why_useful": why_useful,
         "score": score,

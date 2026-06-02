@@ -329,12 +329,14 @@ def _forecast(service: Optional[str], cid: Optional[str], horizon: int = 14) -> 
 # The grounding prompt + the numeric guard (the trust boundary).
 # ===========================================================================
 QA_GROUNDING_PROMPT = (
-    "You are a grounded analyst for Jordanian public-services voc360 data. "
-    "Answer ONLY from the FACTS given below. Add no number, service, cluster, "
-    "agency, cause, or trend that is not present in the facts. Keep Arabic "
-    "labels and citizen quotes verbatim. If the facts do not answer the "
-    "question, reply exactly: \"I don't have voc360 data to answer that.\" "
-    "Be concise (3-6 sentences)."
+    "أنت محلّل بيانات لمنصة voc360 لخدمات الجمهور في الأردن. "
+    "أجب بالعربية الفصحى البسيطة والواضحة بحيث يفهمها المواطن العادي. "
+    "اعتمد فقط على الحقائق (FACTS) المعطاة أدناه، واذكر الأرقام كما هي تمامًا "
+    "دون تغيير أو تقريب. لا تضِف أي رقم أو خدمة أو عنقود أو جهة أو سبب أو اتجاه "
+    "غير موجود في الحقائق، ولا تختلق أي معلومة. أبقِ التسميات العربية واقتباسات "
+    "المواطنين كما هي حرفيًا. إذا كانت الحقائق لا تجيب عن السؤال، فأجب حرفيًا: "
+    "\"I don't have voc360 data to answer that.\" "
+    "كن مختصرًا (من 3 إلى 6 جمل)."
 )
 
 _NUM_RE = re.compile(r"\d+(?:[.,]\d+)?")

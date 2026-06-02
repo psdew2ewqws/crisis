@@ -62,9 +62,17 @@ import {
   Network,
   CornerDownRight,
   Search,
+  MessagesSquare,
+  Layers,
+  StopCircle,
 } from 'lucide-react'
-import { getRootCause, type RootCause } from '../lib/voc'
+import { getRootCause, streamDebate, type RootCause, type DebateEvent } from '../lib/voc'
 import { t } from '../lib/labels.gen'
+
+// agent persona colours for the deep-research debate stream (mirrors ProofPanel)
+const ROLE_COLOR: Record<string, string> = {
+  analyst: '#3B82F6', advocate: '#34D399', skeptic: '#FBBF24', synthesizer: '#A78BFA',
+}
 
 /* ====================================================================== tokens
  * AEGIS palette (mirrors tailwind.config / voc2.ts) — kept local so the page is
@@ -200,6 +208,7 @@ export interface SuggestQuestion {
   q?: string
   kind?: 'whys' | 'validate' | 'forecast' | 'ask' | string
   intent?: string
+  category?: string // Arabic group header emitted by /api/suggest
   params?: { case?: string; cluster_id?: string; service?: string; id?: string; [k: string]: unknown }
   why_useful?: string
 }
@@ -442,6 +451,12 @@ export default function DeepAnalysisPage() {
   const [asking, setAsking] = useState(false)
   const askRef = useRef<HTMLInputElement | null>(null)
 
+  // ---- deep-research agent debate (streamed) ----
+  const [debateTurns, setDebateTurns] = useState<DebateEvent[]>([])
+  const [debateDossier, setDebateDossier] = useState<DebateEvent | null>(null)
+  const [debating, setDebating] = useState(false)
+  const debateAbortRef = useRef<AbortController | null>(null)
+
   /* ---------------------------------------------------- load entity universe */
   const loadUniverse = useCallback(async () => {
     setLoadingUniverse(true)
@@ -573,6 +588,50 @@ export default function DeepAnalysisPage() {
     },
     [scope],
   )
+
+  /* ------------------------------------------- deep-research: stream the debate
+   * Streams POST /api/debate for the current scope (cluster/service/all). Mirrors
+   * the abortable pattern in components/ProofPanel.tsx. */
+  const debateQuery: { type: 'cluster' | 'service' | 'all'; key?: string } = scope
+    ? { type: scope.type, key: scope.key }
+    : { type: 'all' }
+
+  const stopDebate = useCallback(() => {
+    debateAbortRef.current?.abort()
+    setDebating(false)
+  }, [])
+
+  const runDebate = useCallback(async () => {
+    if (debating) return
+    setDebateTurns([])
+    setDebateDossier(null)
+    setDebating(true)
+    const ac = new AbortController()
+    debateAbortRef.current = ac
+    try {
+      await streamDebate(
+        debateQuery,
+        (e) => {
+          if (e.type === 'dossier') setDebateDossier(e)
+          else if (e.type === 'turn' || e.type === 'synthesis') setDebateTurns((xs) => [...xs, e])
+        },
+        ac.signal,
+      )
+    } catch {
+      /* aborted or network error — keep whatever streamed */
+    } finally {
+      setDebating(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debating, scope?.type, scope?.key])
+
+  // reset the debate whenever the analysis target changes
+  useEffect(() => {
+    setDebateTurns([])
+    setDebateDossier(null)
+    setDebating(false)
+    debateAbortRef.current?.abort()
+  }, [scope?.type, scope?.key])
 
   /* --------------------------------------------------- derived: forecast chart */
   const fcData = useMemo(() => {
@@ -768,6 +827,13 @@ export default function DeepAnalysisPage() {
           data={suggest}
           busy={busy.suggest}
           onPick={runSuggestion}
+          onFreeAsk={(q) => {
+            // free-pick: reuse the exact ASK flow the chips use (populate + submit)
+            setQuestion(q)
+            void runAsk(q)
+            askRef.current?.focus()
+            askRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }}
         />
 
         {/* ------------------------------------------- main grid: graph + side */}
@@ -882,6 +948,12 @@ export default function DeepAnalysisPage() {
             setQuestion(f)
             void runAsk(f)
           }}
+          scopeLabel={scopeLabel}
+          debating={debating}
+          debateTurns={debateTurns}
+          debateDossier={debateDossier}
+          onDebate={() => void runDebate()}
+          onStopDebate={stopDebate}
         />
       </div>
     </div>
@@ -893,12 +965,35 @@ function SuggestedQuestions({
   data,
   busy,
   onPick,
+  onFreeAsk,
 }: {
   data: SuggestResponse
   busy: boolean
   onPick: (q: SuggestQuestion) => void
+  onFreeAsk: (q: string) => void
 }) {
   const list = data.questions ?? data.suggestions ?? []
+  const [free, setFree] = useState('')
+
+  // group chips by their Arabic `category`; ungrouped chips fall into a default
+  // bucket so nothing is ever dropped. Insertion order preserved (Map).
+  const groups = useMemo(() => {
+    const m = new Map<string, SuggestQuestion[]>()
+    for (const q of list) {
+      const cat = (q.category ?? '').trim() || 'أسئلة مقترحة'
+      if (!m.has(cat)) m.set(cat, [])
+      m.get(cat)!.push(q)
+    }
+    return [...m.entries()]
+  }, [list])
+
+  const submitFree = () => {
+    const q = free.trim()
+    if (!q) return
+    onFreeAsk(q)
+    setFree('')
+  }
+
   return (
     <div className="mt-4 rounded-xl border border-border bg-card p-4">
       <div className="mb-3 flex items-center justify-between">
@@ -909,28 +1004,60 @@ function SuggestedQuestions({
         </div>
         {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />}
       </div>
+
+      {/* free-pick: type your own question → runs the same ASK flow as the chips */}
+      <div className="mb-3 flex items-center gap-2">
+        <input
+          value={free}
+          onChange={(e) => setFree(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submitFree()
+          }}
+          dir={dir(free)}
+          placeholder="اكتب سؤالك بنفسك…"
+          className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-[13px] text-txt placeholder:text-faint focus:border-blue/60 focus:outline-none"
+        />
+        <button
+          onClick={submitFree}
+          disabled={!free.trim()}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-blue px-3 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-50"
+        >
+          <Send className="h-3.5 w-3.5" />
+          اسأل
+        </button>
+      </div>
+
       {list.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {list.map((q) => {
-            const text = q.text ?? q.q ?? ''
-            return (
-              <button
-                key={q.id}
-                onClick={() => onPick(q)}
-                dir={dir(text)}
-                title={q.why_useful}
-                className="group flex max-w-[420px] items-center gap-2 rounded-lg border border-border bg-cardhi px-3 py-2 text-left text-[12.5px] text-muted transition-colors hover:border-blue/50 hover:bg-soft hover:text-txt"
-              >
-                <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-faint group-hover:text-blue" />
-                <span className="truncate">{text}</span>
-                {(q.kind || q.intent) && (
-                  <span className="ml-auto shrink-0 rounded bg-soft px-1.5 py-0.5 font-mono text-[9px] text-faint">
-                    {q.kind ?? q.intent}
-                  </span>
-                )}
-              </button>
-            )
-          })}
+        <div className="space-y-3">
+          {groups.map(([cat, qs]) => (
+            <div key={cat}>
+              <div className="mb-1.5 font-mono text-[10px] tracking-[0.12em] text-faint" dir={dir(cat)}>
+                {cat}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {qs.map((q) => {
+                  const text = q.text ?? q.q ?? ''
+                  return (
+                    <button
+                      key={q.id}
+                      onClick={() => onPick(q)}
+                      dir={dir(text)}
+                      title={q.why_useful}
+                      className="group flex max-w-[420px] items-center gap-2 rounded-lg border border-border bg-cardhi px-3 py-2 text-left text-[12.5px] text-muted transition-colors hover:border-blue/50 hover:bg-soft hover:text-txt"
+                    >
+                      <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-faint group-hover:text-blue" />
+                      <span className="truncate">{text}</span>
+                      {(q.kind || q.intent) && (
+                        <span className="ml-auto shrink-0 rounded bg-soft px-1.5 py-0.5 font-mono text-[9px] text-faint">
+                          {q.kind ?? q.intent}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <p className="text-[12.5px] text-muted">
@@ -1323,6 +1450,12 @@ function AskPanel({
   answer,
   onAsk,
   onFollowup,
+  scopeLabel,
+  debating,
+  debateTurns,
+  debateDossier,
+  onDebate,
+  onStopDebate,
 }: {
   inputRef: React.RefObject<HTMLInputElement | null>
   question: string
@@ -1331,7 +1464,16 @@ function AskPanel({
   answer: AskResponse | null
   onAsk: () => void
   onFollowup: (f: string) => void
+  scopeLabel: string
+  debating: boolean
+  debateTurns: DebateEvent[]
+  debateDossier: DebateEvent | null
+  onDebate: () => void
+  onStopDebate: () => void
 }) {
+  // Arabic-first answer block: when the answer is Arabic, render RTL, a touch
+  // larger and roomier so it reads like a clean answer, not a dense mash-up.
+  const answerAr = isAr(answer?.answer)
   return (
     <div className="mt-4 rounded-xl border border-border bg-card p-5">
       <div className="mb-3 flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
@@ -1358,12 +1500,20 @@ function AskPanel({
           {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           Ask
         </button>
+        {/* deep-research · agent debate over the current scope */}
+        <button
+          onClick={debating ? onStopDebate : onDebate}
+          className="flex shrink-0 items-center gap-2 rounded-lg border border-[#A78BFA]/45 bg-[#A78BFA]/10 px-4 py-2.5 text-[13px] font-semibold text-[#A78BFA] transition-colors hover:bg-[#A78BFA]/20"
+        >
+          {debating ? <StopCircle className="h-4 w-4" /> : <MessagesSquare className="h-4 w-4" />}
+          {debating ? 'إيقاف' : 'بحث عميق · نقاش الوكلاء'}
+        </button>
       </div>
 
       {answer && (
         <div className="mt-4">
           <div className="rounded-lg border border-border bg-cardhi p-4">
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-2 flex flex-wrap items-center gap-2" dir={answerAr ? 'rtl' : 'ltr'}>
               {answer.intent && (
                 <span className="rounded bg-soft px-1.5 py-0.5 font-mono text-[9px] tracking-[0.1em] text-faint">
                   {answer.intent}
@@ -1374,20 +1524,35 @@ function AskPanel({
               ) : (
                 <span className="rounded bg-soft px-1.5 py-0.5 font-mono text-[9px] text-good">GROUNDED</span>
               )}
-              {answer.engine && <EngineBadge engine={answer.engine} />}
+              {answer.engine && (
+                <>
+                  {/* which model answered, Arabic-first */}
+                  <span className="rounded bg-soft px-1.5 py-0.5 text-[10px] text-txt" dir="rtl">
+                    {answer.engine === 'llm' ? 'النموذج المحلي' : 'محرك مبني على القواعد'}
+                  </span>
+                  <EngineBadge engine={answer.engine} />
+                </>
+              )}
             </div>
-            <p className="text-[13.5px] leading-relaxed text-txt" dir={dir(answer.answer)}>
+            <p
+              className={
+                answerAr
+                  ? 'text-[15.5px] leading-[1.95] text-txt'
+                  : 'text-[13.5px] leading-relaxed text-txt'
+              }
+              dir={dir(answer.answer)}
+            >
               {answer.answer}
             </p>
 
-            {/* facts */}
+            {/* facts — Arabic labels first when the answer is Arabic */}
             {answer.facts && answer.facts.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
+              <div className="mt-3 flex flex-wrap gap-1.5" dir={answerAr ? 'rtl' : 'ltr'}>
                 {answer.facts.map((f, i) => (
                   <span
                     key={i}
-                    className="rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted"
-                    dir={dir(String(f.value))}
+                    className="rounded-md border border-border bg-card px-2 py-1 text-[11.5px] text-muted"
+                    dir={dir(`${f.label} ${f.value}`)}
                   >
                     <span className="text-faint">{f.label}: </span>
                     <span className="text-txt">{String(f.value)}</span>
@@ -1438,6 +1603,82 @@ function AskPanel({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ------------------------------------------- deep-research agent debate */}
+      {(debating || debateTurns.length > 0 || debateDossier) && (
+        <div className="mt-4 rounded-lg border border-[#A78BFA]/30 bg-[#A78BFA]/5 p-4">
+          <div className="mb-3 flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
+            <MessagesSquare className="h-3.5 w-3.5 text-[#A78BFA]" />
+            نقاش الوكلاء · AGENT DEBATE
+            <span className="text-faint" dir={dir(scopeLabel)}>
+              · {scopeLabel}
+            </span>
+            {debating && <Loader2 className="ml-auto h-3.5 w-3.5 animate-spin text-[#A78BFA]" />}
+          </div>
+
+          {/* LightMem topics from the dossier */}
+          {debateDossier && (
+            <div className="mb-3">
+              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-faint">
+                <Layers className="h-3 w-3" /> ذاكرة LightMem · {debateDossier.memory?.length ?? 0} محاور
+                {debateDossier.model && <span className="ml-auto font-mono">{debateDossier.model}</span>}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {(debateDossier.memory ?? []).map((m, i) => (
+                  <span
+                    key={i}
+                    dir="rtl"
+                    className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted"
+                  >
+                    «{m.topic}» · {m.count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* streamed agent turns as RTL Arabic chat bubbles */}
+          <div className="space-y-2">
+            {debateTurns.map((turn, i) => {
+              const col = ROLE_COLOR[turn.role ?? ''] ?? AEGIS.muted
+              const isSynth = turn.type === 'synthesis'
+              return (
+                <div
+                  key={i}
+                  className={`rounded-lg border p-2.5 ${
+                    isSynth ? 'border-[#A78BFA]/45 bg-[#A78BFA]/10' : 'border-border bg-card'
+                  }`}
+                >
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <span className="grid h-4 w-4 place-items-center rounded-full" style={{ background: col }}>
+                      {isSynth ? (
+                        <Brain className="h-2.5 w-2.5 text-white" />
+                      ) : (
+                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                      )}
+                    </span>
+                    <span className="text-[11.5px] font-semibold text-txt">{turn.agent}</span>
+                    {turn.engine && <span className="ml-auto font-mono text-[9px] text-faint">{turn.engine}</span>}
+                  </div>
+                  <div dir="rtl" className="text-[12.5px] leading-relaxed text-txt">
+                    {turn.text}
+                  </div>
+                  {isSynth && typeof turn.confidence === 'number' && (
+                    <div className="mt-1.5 font-mono text-[10px] text-faint">
+                      الثقة {Math.round(turn.confidence * 100)}%{turn.verdict ? ` · ${turn.verdict}` : ''}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {debating && (
+              <div className="flex items-center gap-2 py-1 text-[11px] text-muted">
+                <Loader2 className="h-3 w-3 animate-spin" /> الوكلاء يتناقشون…
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -685,21 +685,20 @@ def ask_whys(start: Dict[str, Any], max_depth: int = 5, lang: str = "ar") -> Dic
 def _grounded_summary(label: str, chain: List[Dict[str, Any]], root: Optional[Dict[str, Any]]) -> str:
     """Deterministic brief composed ONLY from the retrieved chain facts."""
     if not chain:
-        return f"Not enough linked voc360 signals to build a why-chain for {label}."
-    lines = [f"Why-chain for {label} ({len(chain)} grounded step(s), symptom → root):"]
+        return f"لا توجد إشارات voc360 كافية لبناء سلسلة الأسباب لـ«{label}»."
+    lines = [f"سلسلة الأسباب لـ«{label}» ({len(chain)} خطوة، من العَرَض إلى الجذر):"]
     for st in chain:
         ev = ""
         if st.get("evidence"):
-            ev = f" e.g. «{_short(st['evidence'][0], 100)}»"
+            ev = f" مثال: «{_short(st['evidence'][0], 100)}»"
         lines.append(
-            f"  {st['depth']}. WHY {st['question']} → BECAUSE {st['because']} "
-            f"({st.get('because_en','')}) — {st.get('signals', 0)} signals, "
-            f"conf {st.get('confidence', 0)}.{ev}"
+            f"  {st['depth']}. {st['question']} ← لأن {st['because']} "
+            f"— {st.get('signals', 0)} إشارة، ثقة {st.get('confidence', 0)}.{ev}"
         )
     if root is not None:
         lines.append(
-            f"Root cause (depth {root['depth']}): {root.get('because_en','')} "
-            f"({root.get('because','')}), confidence {root.get('confidence', 0)}."
+            f"السبب الجذري (العمق {root['depth']}): {root.get('because', '')} "
+            f"بثقة {root.get('confidence', 0)}."
         )
     return "\n".join(lines)
 
@@ -736,10 +735,10 @@ def _narrate(start: Dict[str, Any], label: str, chain: List[Dict[str, Any]],
         "recommendation": fallback,
     }
     prompt = (
-        "Rephrase ONLY these why-steps into a clear symptom-to-root chain. "
-        "Cite the counts exactly as given; do NOT add any why, number, or cause "
-        "not listed; keep Arabic labels verbatim; if a step is missing say the "
-        "evidence thins there."
+        "أعد صياغة خطوات «لماذا» التالية فقط في سلسلة واضحة بالعربية من العَرَض إلى "
+        "الجذر يفهمها مستخدم عادي. اذكر الأعداد كما هي تمامًا، ولا تُضِف أي سبب أو "
+        "رقم غير مذكور، وأبقِ التسميات العربية كما وردت، وإن غابت خطوة فاذكر أن "
+        "الأدلة تخفّ عندها."
     )
     try:
         text = llm.narrate(prompt, context)
