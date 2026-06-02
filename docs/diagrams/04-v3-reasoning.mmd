@@ -1,0 +1,14 @@
+flowchart TD
+    subgraph v3["api_v3 deep reasoning (every box → grounded fallback, never 500)"]
+        F["/api/forecast<br/>daily series → TimesFM|stat → escalation verdict"]
+        FE["/api/forecast/escalations<br/>rank services/clusters by projected growth"]
+        W["/api/whys<br/>5-whys: symptom→cluster→sub-theme→phrase + graph"]
+        RG["/api/rootcause-graph<br/>the why-chain graph alone (reactflow)"]
+        V["/api/validate<br/>5 weighted checks → valid|weak|insufficient"]
+        VR["/api/validate/rank<br/>validate top-N causes"]
+        ASK["/api/ask<br/>grounded Q&A (retrieve → LLM rephrases)"]
+        SG["/api/suggest<br/>grounded next-questions, gated on counts"]
+    end
+    DB[(voc360)] --> F & FE & W & V & ASK & SG
+    W --> RG
+    V --> VR

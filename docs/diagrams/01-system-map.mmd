@@ -1,0 +1,36 @@
+flowchart LR
+    subgraph Browser["Browser — React SPA (Vite :5173)"]
+        UI["App shell (view switcher)<br/>Sidebar · Topbar · Pages"]
+        VOC["lib/voc.ts + voc2.ts<br/>(fetch clients)"]
+        UI --> VOC
+    end
+
+    subgraph API["FastAPI backend (uvicorn :8000)"]
+        MAIN["main.py<br/>app + v1 endpoints"]
+        R2["main_v2.router (T2/T3)"]
+        R3["api_v3.router (deep reasoning)"]
+        RP["proof.router"]
+        RD["debate.router"]
+        RM["memory_light.router"]
+        MAIN -. include_router .-> R2 & R3 & RP & RD & RM
+    end
+
+    subgraph Engines["Optional engines (graceful fallback)"]
+        DEER["deer_flow<br/>(LangGraph StateGraph)"]
+        MESA["mesa_sim<br/>(Mesa 3 ABM)"]
+        LLM["llm<br/>(local Ollama)"]
+        FC["forecaster<br/>(TimesFM / stat)"]
+    end
+
+    subgraph Data["voc360 (PostgreSQL 16, READ-ONLY, sslmode=require)"]
+        TD["the_data — 22,882 signals"]
+        SEG["ril_text_segments — 2,001"]
+        MEM["ril_cluster_members — 903"]
+        CL["ril_problem_clusters — 21"]
+    end
+
+    VOC -- "HTTP JSON / NDJSON stream" --> MAIN
+    MAIN --> Engines
+    R2 --> Engines
+    R3 --> Engines
+    API -- "psycopg pool, read-only session" --> Data

@@ -1,0 +1,16 @@
+flowchart LR
+    START([POST /api/flow/run ?case]) --> C
+    subgraph deer_flow["deer_flow.py — DeerState threaded through nodes"]
+        C["case_intake<br/>STAGE connect<br/>db.health()"] --> I["ingest_node<br/>STAGE ingest<br/>graph_builder.build_graph"]
+        I --> G["build_graph_node<br/>STAGE graph<br/>publish nodes+edges"]
+        G --> R["root_cause_node<br/>STAGE rootcause<br/>rootcause.rank_root_causes(8)"]
+        R --> RE["recommend_node<br/>STAGE recommend<br/>rootcause.recommend(top)"]
+        RE --> REP([report_node → END])
+    end
+    C -. error .-> REP
+    I -. error .-> REP
+    G -. error .-> REP
+
+    START -.->|"LangGraph present?"| LG{"_HAS_LANGGRAPH"}
+    LG -->|yes| compiled["compiled StateGraph.stream()"]
+    LG -->|no| fallback["_fallback_run_flow()<br/>walks the same _CHAIN"]

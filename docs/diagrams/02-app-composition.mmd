@@ -1,0 +1,10 @@
+flowchart TD
+    A["FastAPI app = main.py"] --> V1["v1 endpoints (inline)<br/>/health /stats /cases /graph<br/>/rootcause /flow/run /simulate"]
+    A -->|try include_router| B["main_v2.router → T2/T3<br/>/signals /kpis /signal-volume<br/>/solutions /decisions /narrate /graph2"]
+    A -->|try| C["api_v3.router → deep reasoning<br/>/forecast /whys /validate /ask<br/>/suggest /rootcause-graph"]
+    A -->|try| D["proof.router<br/>/proof /report/{id}.xlsx"]
+    A -->|try| E["debate.router<br/>/debate (NDJSON)"]
+    A -->|try| F["memory_light.router<br/>/memory /memory/rebuild"]
+
+    V1 -.optional.-> G["deer_flow (LangGraph)"]
+    V1 -.optional.-> H["mesa_sim (Mesa 3)"]
