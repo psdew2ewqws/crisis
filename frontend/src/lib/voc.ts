@@ -169,6 +169,59 @@ const qp = (o: Record<string, string | number | undefined>) =>
 export const getProof = (p: { type: 'cluster' | 'service' | 'all'; key: string; depth?: number }) =>
   j<ProofBundle>(`/api/proof?${qp({ type: p.type, key: p.key, depth: p.depth ?? 5 })}`)
 
+// ── Multi-agent DEBATE (NDJSON stream of agents arguing) ──────────────────────
+export interface DebateEvent {
+  type: 'dossier' | 'turn' | 'synthesis' | 'done' | 'error'
+  role?: string
+  agent?: string
+  text?: string
+  engine?: string
+  model?: string | null
+  subject?: { label_ar?: string; members?: number; severity_avg?: number }
+  memory?: { topic: string; summary: string; count: number }[]
+  validation?: { verdict?: string; confidence?: number }
+  confidence?: number
+  verdict?: string
+  citations?: { type: string; id?: string; label?: string; text?: string; weight?: number }[]
+  report_url?: string
+  error?: string
+}
+
+// Streams POST /api/debate, invoking onEvent per NDJSON line. Resolves when done.
+export async function streamDebate(
+  body: { type: 'cluster' | 'service' | 'all'; key?: string },
+  onEvent: (e: DebateEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/api/debate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!res.body) return
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += dec.decode(value, { stream: true })
+    let i: number
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim()
+      buf = buf.slice(i + 1)
+      if (line) {
+        try {
+          onEvent(JSON.parse(line) as DebateEvent)
+        } catch {
+          /* ignore partial / malformed line */
+        }
+      }
+    }
+  }
+}
+
 export const reportUrl = (clusterId: string) => `${BASE}/api/report/${encodeURIComponent(clusterId)}.xlsx`
 
 export const getWhys = (p: { type: 'cluster' | 'service' | 'all'; key: string; max_depth?: number }) =>

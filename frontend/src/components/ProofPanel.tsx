@@ -1,11 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { LineChart, Line, XAxis, ResponsiveContainer } from 'recharts'
 import {
   Loader2, ArrowLeft, X, FileSpreadsheet, ShieldCheck, ShieldAlert,
   Quote, TrendingUp, TrendingDown, CheckCircle2, XCircle,
+  MessagesSquare, Brain, Layers,
 } from 'lucide-react'
-import { getProof, reportUrl, type ProofBundle } from '../lib/voc'
+import { getProof, reportUrl, streamDebate, type ProofBundle, type DebateEvent } from '../lib/voc'
+
+// agent persona colours for the debate stream
+const ROLE_COLOR: Record<string, string> = {
+  analyst: '#3B82F6', advocate: '#34D399', skeptic: '#FBBF24', synthesizer: '#A78BFA',
+}
 
 const SEV: Record<string, string> = { alert: '#F04359', warn: '#FBBF24', calm: '#34D399' }
 const isAr = (s: string | null | undefined) => !!s && /[؀-ۿ]/.test(s)
@@ -58,6 +64,35 @@ export default function ProofPanel({
       ...fc.history.map((h) => ({ t: h.t, v: +(h.v ?? 0).toFixed(3) })),
       ...fc.forecast.map((f) => ({ t: f.t, v: +(f.mean ?? 0).toFixed(3) })),
     ]
+
+  // ── Agent debate (streamed) ──────────────────────────────────────────────
+  const [turns, setTurns] = useState<DebateEvent[]>([])
+  const [dossier, setDossier] = useState<DebateEvent | null>(null)
+  const [debating, setDebating] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    // reset the debate whenever the subject changes
+    setTurns([]); setDossier(null); setDebating(false)
+    abortRef.current?.abort()
+  }, [query.type, query.key])
+
+  async function runDebate() {
+    if (debating) return
+    setTurns([]); setDossier(null); setDebating(true)
+    const ac = new AbortController()
+    abortRef.current = ac
+    try {
+      await streamDebate({ type: query.type, key: query.key }, (e) => {
+        if (e.type === 'dossier') setDossier(e)
+        else if (e.type === 'turn' || e.type === 'synthesis') setTurns((xs) => [...xs, e])
+      }, ac.signal)
+    } catch {
+      /* aborted or network error — leave whatever streamed */
+    } finally {
+      setDebating(false)
+    }
+  }
 
   return (
     <aside className="flex w-[384px] shrink-0 flex-col overflow-y-auto border-l border-border bg-sidebar">
@@ -159,6 +194,75 @@ export default function ProofPanel({
               Full evidence workbook — why-chain, validation checks, and every source record behind this finding.
             </p>
           </div>
+
+          {/* agent debate — LightMem-augmented swarm arguing over the data */}
+          <Section label="نقاش الوكلاء · AGENT DEBATE">
+            {!turns.length && !debating && (
+              <button
+                onClick={runDebate}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue/40 bg-blue/10 px-4 py-2.5 text-[13px] font-semibold text-blue transition-colors hover:bg-blue/20"
+              >
+                <MessagesSquare className="h-4 w-4" />
+                شغّل نقاش الوكلاء على هذه القضية
+              </button>
+            )}
+
+            {dossier && (
+              <div className="mb-3">
+                <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-faint">
+                  <Layers className="h-3 w-3" /> ذاكرة LightMem · {dossier.memory?.length ?? 0} محاور
+                  <span className="ml-auto font-mono">{dossier.model ? dossier.model : 'grounded'}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(dossier.memory ?? []).map((m, i) => (
+                    <span key={i} dir="rtl" className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted">
+                      «{m.topic}» · {m.count}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {turns.map((t, i) => {
+                const col = ROLE_COLOR[t.role ?? ''] ?? '#8B8D96'
+                const isSynth = t.type === 'synthesis'
+                return (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`rounded-lg border p-2.5 ${isSynth ? 'border-blue/40 bg-blue/5' : 'border-border bg-card'}`}
+                  >
+                    <div className="mb-1 flex items-center gap-1.5">
+                      <span className="grid h-4 w-4 place-items-center rounded-full" style={{ background: col }}>
+                        {isSynth ? <Brain className="h-2.5 w-2.5 text-white" /> : <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                      </span>
+                      <span className="text-[11px] font-semibold text-txt">{t.agent}</span>
+                      {t.engine && <span className="ml-auto font-mono text-[9px] text-faint">{t.engine}</span>}
+                    </div>
+                    <div dir="rtl" className="text-[12px] leading-relaxed text-txt">{t.text}</div>
+                    {isSynth && typeof t.confidence === 'number' && (
+                      <div className="mt-1.5 font-mono text-[10px] text-faint">
+                        الثقة {Math.round(t.confidence * 100)}% · {t.verdict}
+                      </div>
+                    )}
+                  </motion.div>
+                )
+              })}
+              {debating && (
+                <div className="flex items-center gap-2 py-1 text-[11px] text-muted">
+                  <Loader2 className="h-3 w-3 animate-spin" /> الوكلاء يتناقشون…
+                </div>
+              )}
+            </div>
+
+            {turns.length > 0 && !debating && (
+              <button onClick={runDebate} className="mt-2 text-[11px] text-blue hover:underline">
+                إعادة النقاش
+              </button>
+            )}
+          </Section>
 
           {/* why-chain causal trace — numbered stepper */}
           <Section label="WHY THIS HAPPENS · 5-WHYS">
