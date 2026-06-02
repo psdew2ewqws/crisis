@@ -21,6 +21,13 @@ const accent: Record<Tone, string> = {
   warn: 'from-warn/70',
   neutral: 'from-blue/60',
 }
+// baseline accent bar colour per tone (21st.dev KPI-card touch)
+const barTone: Record<Tone, string> = {
+  danger: 'bg-danger/60',
+  good: 'bg-good/60',
+  warn: 'bg-warn/60',
+  neutral: 'bg-blue/50',
+}
 
 export default function KpiCard({ kpi, index = 0 }: { kpi: Kpi; index?: number }) {
   const Arrow = kpi.trend.dir === 'up' ? ArrowUpRight : ArrowDownRight
@@ -41,6 +48,9 @@ export default function KpiCard({ kpi, index = 0 }: { kpi: Kpi; index?: number }
       <div
         className={`pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-gradient-to-br to-transparent opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-50 ${accent[tone]}`}
       />
+      {/* stacked corner-pulse rings (21st.dev KPI-card detail) */}
+      <span className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-txt/[0.04]" />
+      <span className="pointer-events-none absolute -right-2 -top-2 h-8 w-8 rounded-full bg-txt/[0.04]" />
 
       <div className="flex items-center justify-between">
         <span className="text-[13px] text-muted">{kpi.title}</span>
@@ -67,6 +77,9 @@ export default function KpiCard({ kpi, index = 0 }: { kpi: Kpi; index?: number }
         </span>
         <span className="truncate pl-3 text-right text-[12px] text-faint">{kpi.sub}</span>
       </div>
+
+      {/* tiny baseline accent bar (21st.dev KPI-card touch) */}
+      <div className={`mt-3 h-0.5 w-14 rounded-full opacity-70 ${barTone[tone]}`} />
     </motion.div>
   )
 }
