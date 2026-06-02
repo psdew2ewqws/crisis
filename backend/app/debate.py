@@ -290,6 +290,30 @@ def run_debate(stype: str, key: Optional[str]) -> Iterator[Dict[str, Any]]:
     facts = _facts_block(d)
     transcript: List[Dict[str, str]] = []
 
+    # TOPIC DELEGATES — one agent per LightMem consolidated topic, so the swarm
+    # SCALES WITH THE DATA (MiroFish-style: more topics → more voices). Each
+    # delegate states why its facet of the issue matters before the role debate.
+    for m in (d.get("memory") or [])[:8]:
+        topic, count, summary = m.get("topic"), m.get("count"), m.get("summary")
+        text = None
+        if using_llm:
+            try:
+                text = llm.chat(
+                    _BASE_SYS + f" دورك: مندوب محور «{topic}».",
+                    f"الأدلة المشتركة:\n{facts}\n\nأنت مندوب محور «{topic}» ({count} بلاغ). "
+                    f"اعرض في جملة واحدة لماذا يستحق هذا المحور الاهتمام ضمن القضية.",
+                    temperature=0.4, max_tokens=110, timeout=10,
+                )
+            except Exception:
+                text = None
+        engine = "llm" if text else "grounded"
+        if not text:
+            text = (f"محور «{topic}» يضم {count} بلاغًا: {_short(summary, words=20, chars=150)} "
+                    f"— أحد أوجه المشكلة التي يجب أخذها بالحسبان.")
+        transcript.append({"name": f"مندوب · {topic}", "text": text})
+        yield {"type": "turn", "role": "delegate", "agent": f"مندوب · {topic}",
+               "text": text, "engine": engine}
+
     for role in ROLES:
         text = _llm_turn(role, facts, transcript) if using_llm else None
         engine = "llm" if text else "grounded"

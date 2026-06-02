@@ -71,7 +71,7 @@ import { t } from '../lib/labels.gen'
 
 // agent persona colours for the deep-research debate stream (mirrors ProofPanel)
 const ROLE_COLOR: Record<string, string> = {
-  analyst: '#3B82F6', advocate: '#34D399', skeptic: '#FBBF24', synthesizer: '#A78BFA',
+  delegate: '#22D3EE', analyst: '#3B82F6', advocate: '#34D399', skeptic: '#FBBF24', synthesizer: '#A78BFA',
 }
 
 /* ====================================================================== tokens

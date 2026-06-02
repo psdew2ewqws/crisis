@@ -332,34 +332,34 @@ def _national() -> List[Suggestion]:
     )
 
     out.append(_mk(
-        "What are the top root-cause problem clusters nationwide right now, ranked by citizen-report volume and severity?",
+        "ما هي أبرز مجموعات المشكلات ذات الأسباب الجذرية على المستوى الوطني الآن، مرتّبة حسب حجم بلاغات المواطنين وشدّتها؟",
         "root_cause_rank", {"limit": 5},
-        f"Ranks {len(top) or 'all'} real RIL clusters over {total:,} national signals.",
+        f"يرتّب {len(top) or 'كل'} مجموعات RIL حقيقية عبر {total:,} إشارة على المستوى الوطني.",
         signals=total, sev_weight=sw, answerability=1.0,
         needs=["the_data", "ril_problem_clusters"],
     ))
 
     out.append(_mk(
-        "Looking 30 days ahead, which service or problem cluster is forecast to escalate the fastest in complaint volume?",
+        "بالنظر إلى الثلاثين يوماً القادمة، أي خدمة أو مجموعة مشكلات يُتوقّع أن تتصاعد بأسرع وتيرة في حجم الشكاوى؟",
         "escalation_scan", {"horizon": 14},
-        f"Scans {services_n} services + clusters for forecast growth (TimesFM or statistical fallback).",
+        f"يفحص {services_n} خدمة ومجموعة لرصد النمو المتوقّع (TimesFM أو البديل الإحصائي).",
         signals=total, sev_weight=sw, answerability=0.9,
         needs=["the_data", "forecaster"],
     ))
 
     out.append(_mk(
-        "Across all citizen feedback channels, where is the dominant national pain point and which source type drives it?",
+        "عبر جميع قنوات ملاحظات المواطنين، أين تتركّز أبرز نقطة ألم وطنية وأي نوع مصدر يقودها؟",
         "metric_breakdown", {"dim": "source_type"},
-        f"Breaks {total:,} signals down by intake source (app_review / social / complaint / survey).",
+        f"يوزّع {total:,} إشارة حسب مصدر الاستقبال (تقييم تطبيق / تواصل اجتماعي / شكوى / استبيان).",
         signals=total, sev_weight=1.0, answerability=1.0,
         needs=["the_data"],
     ))
 
     if critical >= GATE_CRITICAL:
         out.append(_mk(
-            "How severe are complaints nationally — what share are high or critical severity, and where do they concentrate?",
+            "ما مدى خطورة الشكاوى على المستوى الوطني — ما نسبة الشكاوى ذات الشدّة العالية أو الحرجة، وأين تتركّز؟",
             "metric_breakdown", {"dim": "severity"},
-            f"{critical:,} high/critical signals on record nationally.",
+            f"{critical:,} إشارة عالية/حرجة مسجّلة على المستوى الوطني.",
             signals=critical, sev_weight=sw, answerability=1.0,
             needs=["the_data"],
         ))
@@ -377,9 +377,9 @@ def _national() -> List[Suggestion]:
     if len(busiest) == 2 and _i(busiest[0]["n"]) >= GATE_SIGNALS and _i(busiest[1]["n"]) >= GATE_SIGNALS:
         a, b = busiest[0]["service_id"], busiest[1]["service_id"]
         out.append(_mk(
-            f"Compare {a} and {b} — which has more negative citizen sentiment and which is worse right now?",
+            f"قارن بين {a} و{b} — أيّهما يحمل مشاعر مواطنين سلبية أكثر وأيّهما أسوأ حالاً الآن؟",
             "compare_services", {"a": a, "b": b, "metric": "negativity"},
-            f"{a}: {_i(busiest[0]['n']):,} signals vs {b}: {_i(busiest[1]['n']):,}.",
+            f"{a}: {_i(busiest[0]['n']):,} إشارة مقابل {b}: {_i(busiest[1]['n']):,}.",
             signals=_i(busiest[0]["n"]) + _i(busiest[1]["n"]),
             sev_weight=1.0, answerability=1.0,
             needs=["the_data"],
@@ -389,9 +389,9 @@ def _national() -> List[Suggestion]:
     if busiest and _i(busiest[0]["n"]) >= GATE_SIGNALS:
         a = busiest[0]["service_id"]
         out.append(_mk(
-            f"Forecast the next 30 days of complaint volume for {a} — will it keep escalating?",
+            f"تنبّأ بحجم الشكاوى لخدمة {a} خلال الثلاثين يوماً القادمة — هل ستواصل التصاعد؟",
             "forecast_volume", {"entity": "service", "id": a, "horizon": 30},
-            f"{a} is the busiest service ({_i(busiest[0]['n']):,} signals).",
+            f"{a} هي الخدمة الأكثر ازدحاماً ({_i(busiest[0]['n']):,} إشارة).",
             signals=_i(busiest[0]["n"]), sev_weight=1.0, answerability=0.9,
             needs=["the_data", "forecaster"],
         ))
@@ -409,18 +409,18 @@ def _service(service: str) -> List[Suggestion]:
 
     # 1) why-chain (always offerable once the service has signals).
     out.append(_mk(
-        f"Walk the 5-whys chain for {service} — from the symptom down to the specific root cause.",
+        f"تتبّع سلسلة \"الأسباب الخمسة\" لخدمة {service} — من العرض الظاهر وصولاً إلى السبب الجذري المحدّد.",
         "why_chain", {"type": "service", "key": service, "max_depth": 5},
-        f"{p['signals']:,} citizen signals back a grounded why-chain for {service}.",
+        f"{p['signals']:,} إشارة من المواطنين تدعم سلسلة أسباب موثّقة لخدمة {service}.",
         signals=p["signals"], sev_weight=sw, answerability=1.0,
         needs=["the_data", "ril_problem_clusters"],
     ))
 
     # 2) service -> dominant root-cause clusters.
     out.append(_mk(
-        f"Which root-cause cluster drives the most negative signals for {service}, and how many reports back it?",
+        f"أي مجموعة سبب جذري تقود أكثر الإشارات السلبية لخدمة {service}، وكم عدد البلاغات التي تدعمها؟",
         "service_clusters", {"service": service},
-        f"Maps {service}'s {p['signals']:,} signals to its dominant RIL clusters.",
+        f"يربط {p['signals']:,} إشارة لخدمة {service} بمجموعات RIL المهيمنة عليها.",
         signals=p["signals"], sev_weight=sw, answerability=1.0,
         needs=["the_data", "ril_problem_clusters", "cluster_link"],
     ))
@@ -429,9 +429,9 @@ def _service(service: str) -> List[Suggestion]:
     if p["sentiment_known"] >= 5:
         pct = round(100.0 * p["negative"] / p["sentiment_known"]) if p["sentiment_known"] else 0
         out.append(_mk(
-            f"What is the negative-vs-positive sentiment split for {service}, and which sentiment dominates?",
+            f"ما توزيع المشاعر السلبية مقابل الإيجابية لخدمة {service}، وأي اتجاه مشاعر هو المهيمن؟",
             "metric_breakdown", {"service": service, "dim": "sentiment"},
-            f"{pct}% of {p['sentiment_known']:,} sentiment-bearing signals are negative.",
+            f"{pct}% من {p['sentiment_known']:,} إشارة حاملة لمشاعر هي إشارات سلبية.",
             signals=p["sentiment_known"], sev_weight=1.0, answerability=1.0,
             needs=["the_data"],
         ))
@@ -439,9 +439,9 @@ def _service(service: str) -> List[Suggestion]:
     # 4) severity breakdown.
     if p["critical"] >= GATE_CRITICAL:
         out.append(_mk(
-            f"How severe are {service}'s complaints — what share are high or critical severity?",
+            f"ما مدى خطورة شكاوى خدمة {service} — ما نسبة الشكاوى ذات الشدّة العالية أو الحرجة؟",
             "metric_breakdown", {"service": service, "dim": "severity"},
-            f"{p['critical']:,} of {service}'s signals are high/critical.",
+            f"{p['critical']:,} من إشارات خدمة {service} عالية/حرجة.",
             signals=p["critical"], sev_weight=sw, answerability=1.0,
             needs=["the_data"],
         ))
@@ -449,18 +449,18 @@ def _service(service: str) -> List[Suggestion]:
     # 5) governorate breakdown (only if >=2 distinct govs — most are NULL).
     if p["govs"] >= GATE_GOVS:
         out.append(_mk(
-            f"Which governorates report the most problems for {service}?",
+            f"أي المحافظات تبلّغ عن أكبر عدد من المشكلات لخدمة {service}؟",
             "metric_breakdown", {"service": service, "dim": "governorate"},
-            f"{p['govs']} governorates carry tagged signals for {service}.",
+            f"{p['govs']} محافظات تحمل إشارات موسومة لخدمة {service}.",
             signals=p["signals"], sev_weight=1.0, answerability=0.8,
             needs=["the_data"],
         ))
 
     # 6) source / channel breakdown.
     out.append(_mk(
-        f"Through which channels and source types are citizens reporting problems for {service}?",
+        f"عبر أي قنوات وأنواع مصادر يبلّغ المواطنون عن مشكلات خدمة {service}؟",
         "metric_breakdown", {"service": service, "dim": "source_type"},
-        f"Attributes {service}'s {p['signals']:,} signals to intake channels.",
+        f"يَنسب {p['signals']:,} إشارة لخدمة {service} إلى قنوات الاستقبال.",
         signals=p["signals"], sev_weight=1.0, answerability=1.0,
         needs=["the_data"],
     ))
@@ -468,26 +468,26 @@ def _service(service: str) -> List[Suggestion]:
     # 7) volume forecast (gated on enough distinct days).
     if p["days"] >= GATE_FORECAST_DAYS:
         out.append(_mk(
-            f"How has daily signal volume for {service} trended, and is it forecast to escalate?",
+            f"كيف تطوّر حجم الإشارات اليومي لخدمة {service}، وهل يُتوقّع أن يتصاعد؟",
             "forecast_volume", {"entity": "service", "id": service, "horizon": 30},
-            f"{p['days']} distinct days of history support a {service} volume forecast.",
+            f"{p['days']} يوماً متمايزاً من السجل تدعم توقّع حجم خدمة {service}.",
             signals=p["signals"], sev_weight=sw, answerability=0.9,
             needs=["the_data", "forecaster"],
         ))
         # 8) sentiment forecast.
         if p["sentiment_known"] >= 5:
             out.append(_mk(
-                f"Is the negative-sentiment share for {service} trending up or down over the next 2 weeks?",
+                f"هل نسبة المشاعر السلبية لخدمة {service} في تصاعد أم تراجع خلال الأسبوعين القادمين؟",
                 "forecast_sentiment", {"entity": "service", "id": service, "horizon": 14},
-                f"{p['days']} days of sentiment history for {service}.",
+                f"{p['days']} يوماً من سجل المشاعر لخدمة {service}.",
                 signals=p["sentiment_known"], sev_weight=1.0, answerability=0.85,
                 needs=["the_data", "forecaster"],
             ))
         # 9) temporal trend (recent vs prior window).
         out.append(_mk(
-            f"Is {service} getting better or worse — recent 30-day volume and negativity vs the prior window?",
+            f"هل تتحسّن خدمة {service} أم تتدهور — حجم وسلبية آخر 30 يوماً مقابل الفترة السابقة؟",
             "temporal_trend", {"service": service},
-            f"{p['days']} days let us compare recent vs prior windows for {service}.",
+            f"{p['days']} يوماً تتيح لنا مقارنة الفترة الأخيرة بالفترة السابقة لخدمة {service}.",
             signals=p["signals"], sev_weight=sw, answerability=0.9,
             needs=["the_data"],
         ))
@@ -507,9 +507,9 @@ def _cluster(cluster_id: str) -> List[Suggestion]:
 
     # 1) why-chain on the cluster.
     out.append(_mk(
-        f"Explain the full why-chain for the '{label}' cluster — from symptom to specific root cause.",
+        f"اشرح سلسلة الأسباب الكاملة لمجموعة '{label}' — من العرض الظاهر إلى السبب الجذري المحدّد.",
         "why_chain", {"type": "cluster", "key": cluster_id, "max_depth": 5},
-        f"'{label}' has {p['members']} clustered citizen segments ({p['signals']} recovered signals).",
+        f"تضمّ '{label}' عدد {p['members']} مقطعاً مجمَّعاً من المواطنين ({p['signals']} إشارة مستردّة).",
         signals=base_signals, sev_weight=sw, answerability=1.0,
         needs=["ril_problem_clusters", "ril_cluster_members", "cluster_link"],
     ))
@@ -517,9 +517,9 @@ def _cluster(cluster_id: str) -> List[Suggestion]:
     # 2) sub-themes via TF-IDF over ril_text_segments (gated on members + distinct texts).
     if p["members"] >= GATE_MEMBERS and p["distinct_texts"] >= 3:
         out.append(_mk(
-            f"What are the dominant sub-themes inside the '{label}' cluster, drawn from citizens' own words?",
+            f"ما الموضوعات الفرعية المهيمنة داخل مجموعة '{label}'، كما تظهر من كلمات المواطنين أنفسهم؟",
             "cluster_subthemes", {"cluster_id": cluster_id},
-            f"{p['members']} member segments ({p['distinct_texts']} distinct texts) feed the sub-theme extractor.",
+            f"{p['members']} مقطعاً عضواً ({p['distinct_texts']} نصاً متمايزاً) تغذّي مستخرِج الموضوعات الفرعية.",
             signals=p["members"], sev_weight=sw, answerability=1.0,
             needs=["ril_cluster_members", "ril_text_segments"],
         ))
@@ -528,18 +528,18 @@ def _cluster(cluster_id: str) -> List[Suggestion]:
     if p["services"]:
         owner = p["services"][0][0]
         out.append(_mk(
-            f"Which services feed the '{label}' cluster, and who owns it?",
+            f"أي الخدمات تغذّي مجموعة '{label}'، ومن الجهة المالكة لها؟",
             "cluster_services", {"cluster_id": cluster_id},
-            f"Recovered to {len(p['services'])} service(s); top owner {owner} ({p['services'][0][1]} signals).",
+            f"استُردّت إلى {len(p['services'])} خدمة؛ المالك الأبرز {owner} ({p['services'][0][1]} إشارة).",
             signals=p["signals"], sev_weight=sw, answerability=1.0,
             needs=["cluster_link", "the_data"],
         ))
 
     # 4) case validation (always — the verdict degrades gracefully).
     out.append(_mk(
-        f"Validate: is '{label}' really a root cause — coverage, evidence, trend, and sim impact?",
+        f"تحقّق: هل '{label}' سبب جذري فعلاً — من حيث التغطية والأدلة والاتجاه وأثر المحاكاة؟",
         "case_validation", {"cluster_id": cluster_id},
-        f"{p['signals']} recovered signals + {p['members']} segments back the validation checks.",
+        f"{p['signals']} إشارة مستردّة و{p['members']} مقطعاً تدعم فحوص التحقّق.",
         signals=base_signals, sev_weight=sw, answerability=0.95,
         needs=["cluster_link", "ril_cluster_members", "forecaster", "mesa_sim"],
     ))
@@ -548,9 +548,9 @@ def _cluster(cluster_id: str) -> List[Suggestion]:
     if p["services"]:
         owner = p["services"][0][0]
         out.append(_mk(
-            f"If we fixed '{label}', how much would negative-signal volume drop in the simulation?",
+            f"لو عالجنا '{label}'، كم سينخفض حجم الإشارات السلبية في المحاكاة؟",
             "sim_impact", {"cluster_id": cluster_id, "service": owner},
-            f"Simulates intervening on '{label}' via its owning service {owner}.",
+            f"يحاكي التدخّل على '{label}' عبر الخدمة المالكة لها {owner}.",
             signals=p["signals"], sev_weight=sw, answerability=0.85,
             needs=["mesa_sim", "cluster_link"],
         ))
@@ -558,9 +558,9 @@ def _cluster(cluster_id: str) -> List[Suggestion]:
     # 6) forecast the cluster's volume (gated on its service set's history).
     if p["days"] >= GATE_FORECAST_DAYS:
         out.append(_mk(
-            f"Is the '{label}' cluster getting better or worse — forecast its volume and check for escalation.",
+            f"هل مجموعة '{label}' تتحسّن أم تتدهور — تنبّأ بحجمها وتحقّق من احتمال التصاعد.",
             "forecast_volume", {"entity": "cluster", "id": cluster_id, "horizon": 30},
-            f"{p['days']} days of history across the cluster's service set.",
+            f"{p['days']} يوماً من السجل عبر مجموعة الخدمات التابعة لها.",
             signals=p["signals"], sev_weight=sw, answerability=0.9,
             needs=["the_data", "cluster_link", "forecaster"],
         ))

@@ -10,7 +10,7 @@ import { getProof, reportUrl, streamDebate, type ProofBundle, type DebateEvent }
 
 // agent persona colours for the debate stream
 const ROLE_COLOR: Record<string, string> = {
-  analyst: '#3B82F6', advocate: '#34D399', skeptic: '#FBBF24', synthesizer: '#A78BFA',
+  delegate: '#22D3EE', analyst: '#3B82F6', advocate: '#34D399', skeptic: '#FBBF24', synthesizer: '#A78BFA',
 }
 
 const SEV: Record<string, string> = { alert: '#F04359', warn: '#FBBF24', calm: '#34D399' }
