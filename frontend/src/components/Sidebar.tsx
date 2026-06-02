@@ -8,6 +8,7 @@ import {
   Gauge,
   PenLine,
   Brain,
+  MessageSquare,
   Settings,
   HelpCircle,
 } from 'lucide-react'
@@ -22,6 +23,7 @@ const OPS = [
   { label: 'Simulation', icon: Gauge, badge: null },
   { label: 'Decisions', icon: PenLine, badge: null },
   { label: 'Deep Analysis', icon: Brain, badge: null },
+  { label: 'Expert Chat', icon: MessageSquare, badge: null },
 ]
 
 // A sidebar CASE row = a real voc360 service (id) with its signal/critical counts.

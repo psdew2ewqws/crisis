@@ -549,21 +549,18 @@ export default function DeepAnalysisPage() {
                 ? { type: 'cluster', key: String(p.id) }
                 : scope
 
-      // intents that drive the analysis panels (why-chain graph, forecast, validation)
-      // → change scope so all panels refresh; everything else → grounded Q&A box
-      const SCOPE_INTENTS = new Set(['why_chain', 'forecast_volume', 'case_validation'])
-      if (SCOPE_INTENTS.has(kind ?? '') && resolvedScope) {
-        if (resolvedScope.key !== scope?.key || resolvedScope.type !== scope?.type) {
-          setScope(resolvedScope)
-        } else {
-          void runAnalysis(resolvedScope, metric)
-        }
+      // if the chip targets a DIFFERENT scope → switch scope so all panels refresh
+      const SCOPE_CHANGE_INTENTS = new Set(['why_chain', 'forecast_volume', 'case_validation'])
+      const scopeChanged =
+        resolvedScope &&
+        (resolvedScope.key !== scope?.key || resolvedScope.type !== scope?.type)
+      if (SCOPE_CHANGE_INTENTS.has(kind ?? '') && scopeChanged && resolvedScope) {
+        setScope(resolvedScope)
         return
       }
 
-      // all other intents (root_cause_rank, escalation_scan, metric_breakdown,
-      // compare_services, sim_impact, cluster_subthemes, cluster_services, ask…)
-      // → put question in the ask box and scroll to it
+      // same scope (or ask/general intents) → put question in the ask box
+      // and run grounded Q&A so the user sees an immediate textual answer
       setQuestion(text)
       void runAsk(text, resolvedScope?.type === 'service' ? resolvedScope.key : undefined)
       askRef.current?.focus()

@@ -85,6 +85,13 @@ try:
 except Exception:
     pass
 
+# Expert Chat + Guardrails: POST /api/expert/chat, /api/expert/guardrail, etc.
+try:
+    from . import expert_chat
+    app.include_router(expert_chat.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():

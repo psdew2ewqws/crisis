@@ -19,6 +19,7 @@ const SolutionsPage = lazy(() => import('./pages/SolutionsPage'))
 const SimulationPage = lazy(() => import('./pages/SimulationPage'))
 const DecisionsPage = lazy(() => import('./pages/DecisionsPage'))
 const DeepAnalysisPage = lazy(() => import('./pages/DeepAnalysisPage'))
+const ExpertChatPage = lazy(() => import('./pages/ExpertChatPage'))
 
 function Loading() {
   return (
@@ -311,6 +312,7 @@ export default function App() {
     case 'Simulation': content = <SimulationPage />; break
     case 'Decisions': content = <DecisionsPage />; break
     case 'Deep Analysis': content = <DeepAnalysisPage />; break
+    case 'Expert Chat': content = <ExpertChatPage />; break
     default: content = <DashboardView service={activeService} onRun={runAnalysis} query={search} />
   }
 
