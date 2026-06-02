@@ -44,6 +44,10 @@ try:
     from . import rootcause  # top-K clusters for the national deep-research swarm
 except Exception:  # pragma: no cover
     rootcause = None  # type: ignore
+try:
+    from . import lessons  # past successful interventions (semantic memory)
+except Exception:  # pragma: no cover
+    lessons = None  # type: ignore
 
 router = APIRouter()
 NDJSON = "application/x-ndjson"
@@ -139,7 +143,20 @@ def _facts_block(d: Dict[str, Any]) -> str:
             for m in mem[:5]
         )
         lines.append("محاور الشكوى المُجمّعة (ذاكرة LightMem):\n" + topics)
-    else:
+    if lessons is not None:
+        try:
+            subj = d.get("subject") or {}
+            block = lessons.lessons_context_block(
+                domain=lessons.infer_domain(None, _short_label(d)),
+                root_cause_category=lessons._slug(subj.get("label_en") or subj.get("label_ar") or ""),
+                query=subj.get("label_ar") or subj.get("label_en"),
+                limit=3,
+            )
+            if block:
+                lines.append(block)
+        except Exception:
+            pass
+    if not mem:
         ev = (d.get("evidence") or [])
         quotes = "\n".join(f"  - «{_short(e.get('segment_text'), words=14, chars=140)}»" for e in ev[:4] if e.get("segment_text"))
         if quotes:

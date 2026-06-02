@@ -78,6 +78,13 @@ try:
 except Exception:
     pass
 
+# Lessons memory (validated interventions + semantic retrieval)
+try:
+    from . import lessons
+    app.include_router(lessons.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():

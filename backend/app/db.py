@@ -34,7 +34,7 @@ def _get_pool():
         from psycopg_pool import ConnectionPool
 
         _pool = ConnectionPool(
-            DSN, min_size=1, max_size=6, max_idle=300, timeout=25,
+            DSN, min_size=1, max_size=6, max_idle=300, timeout=90,
             kwargs={"options": _RO}, open=True,
         )
     except Exception:
