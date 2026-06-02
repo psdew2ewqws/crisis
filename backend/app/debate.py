@@ -472,6 +472,15 @@ def run_deep_research(top_k: int = 5) -> Iterator[Dict[str, Any]]:
         agents += 1
         yield {"type": "turn", "group": label, "role": "analyst", "agent": "المحلّل", "text": atext, "engine": aeng}
 
+        # a skeptic challenges whether THIS cluster is a real root cause (per-cluster)
+        sk = next((r for r in ROLES if r["key"] == "skeptic"), None)
+        ktext = _llm_turn(sk, facts, []) if (using_llm and sk) else None
+        keng = "llm" if ktext else "grounded"
+        if not ktext:
+            ktext = _det_turn("skeptic", d)
+        agents += 1
+        yield {"type": "turn", "group": label, "role": "skeptic", "agent": "المُعارِض", "text": ktext, "engine": keng}
+
         findings.append({"label": label, "members": s.get("members"),
                          "verdict": (d.get("validation") or {}).get("verdict")})
 
