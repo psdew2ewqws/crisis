@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, ResponsiveContainer } from 'recharts'
 import {
   Loader2, ArrowLeft, X, FileSpreadsheet, ShieldCheck, ShieldAlert,
   Quote, TrendingUp, TrendingDown, CheckCircle2, XCircle,
-  MessagesSquare, Brain, Layers,
+  MessagesSquare, Brain, Layers, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { getProof, reportUrl, streamDebate, type ProofBundle, type DebateEvent } from '../lib/voc'
 
@@ -42,6 +42,8 @@ export default function ProofPanel({
   const [proof, setProof] = useState<ProofBundle | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(true)
+  // average users see the plain summary + debate; technical detail is on-demand
+  const [showTech, setShowTech] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -276,6 +278,18 @@ export default function ProofPanel({
             )}
           </Section>
 
+          {/* technical detail — collapsed by default so an average reader isn't
+              overwhelmed; the plain summary + debate above answer the question. */}
+          <button
+            onClick={() => setShowTech((v) => !v)}
+            className="flex w-full items-center justify-center gap-2 border-b border-border bg-card/40 px-4 py-2.5 text-[12px] font-medium text-muted transition-colors hover:bg-soft hover:text-txt"
+          >
+            {showTech ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {showTech ? 'إخفاء التفاصيل التقنية' : 'عرض التفاصيل التقنية (السلسلة السببية والأدلة)'}
+          </button>
+
+          {showTech && (
+          <>
           {/* why-chain causal trace — numbered stepper */}
           <Section label="WHY THIS HAPPENS · 5-WHYS">
             <ol className="space-y-0">
@@ -489,6 +503,8 @@ export default function ProofPanel({
                 </LineChart>
               </ResponsiveContainer>
             </Section>
+          )}
+          </>
           )}
         </motion.div>
       )}
