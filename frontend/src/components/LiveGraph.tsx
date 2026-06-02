@@ -12,7 +12,7 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts'
-import { Zap, Loader2, Database, CheckCircle2, Circle, FlaskConical, ChevronDown } from 'lucide-react'
+import { Zap, Loader2, CheckCircle2, Circle, FlaskConical, ChevronDown } from 'lucide-react'
 import {
   getGraph, getRootCause, getHealth, getSimulate, runFlow, getCases,
   type Graph, type RootCause, type FlowEvent, type Sim, type CaseServiceRow,
@@ -160,12 +160,28 @@ export default function LiveGraph() {
       <div className="flex items-center justify-between border-b border-border px-8 py-4">
         <div>
           <h1 className="text-[22px] font-semibold tracking-tight text-txt">Live Crisis Graph</h1>
-          <p className="mt-1 flex items-center gap-2 text-[13px] text-muted">
-            <Database className="h-3.5 w-3.5" />
-            <span className={health?.ok ? 'text-good' : 'text-danger'}>
-              {health?.ok ? `voc360 connected` : 'db offline'}
+          <p className="mt-1.5 flex items-center gap-2.5 text-[13px]">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                health?.ok ? 'border-good/30 bg-good/10 text-good' : 'border-danger/30 bg-danger/10 text-danger'
+              }`}
+            >
+              <span className="relative flex h-1.5 w-1.5">
+                {health?.ok && (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-good opacity-60" />
+                )}
+                <span
+                  className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.ok ? 'bg-good' : 'bg-danger'}`}
+                />
+              </span>
+              {health?.ok ? 'voc360 connected' : 'db offline'}
             </span>
-            {graph && <span className="text-faint">· {graph.stats.signals.toLocaleString()} signals · {graph.stats.services} services · {graph.stats.clusters} root causes</span>}
+            {graph && (
+              <span className="text-faint">
+                {graph.stats.signals.toLocaleString()} signals · {graph.stats.services} services ·{' '}
+                {graph.stats.clusters} root causes
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-3">

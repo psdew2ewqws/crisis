@@ -1,19 +1,26 @@
 import { useEffect, useState } from 'react'
+import { motion } from 'motion/react'
 import { LineChart, Line, XAxis, ResponsiveContainer } from 'recharts'
 import {
   Loader2, ArrowLeft, X, FileSpreadsheet, ShieldCheck, ShieldAlert,
-  CornerDownRight, Quote, TrendingUp, CheckCircle2, XCircle,
+  Quote, TrendingUp, TrendingDown, CheckCircle2, XCircle,
 } from 'lucide-react'
 import { getProof, reportUrl, type ProofBundle } from '../lib/voc'
 
 const SEV: Record<string, string> = { alert: '#F04359', warn: '#FBBF24', calm: '#34D399' }
 const isAr = (s: string | null | undefined) => !!s && /[؀-ۿ]/.test(s)
 const sevColor = (v: number) => (v >= 0.5 ? SEV.alert : v >= 0.3 ? SEV.warn : SEV.calm)
+const sevLabel = (v: number) => (v >= 0.5 ? 'Critical' : v >= 0.3 ? 'Elevated' : 'Nominal')
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({ label, count, children }: { label: string; count?: number; children: React.ReactNode }) {
   return (
     <div className="border-b border-border p-4">
-      <div className="mb-3 font-mono text-[10px] tracking-[0.14em] text-faint">{label}</div>
+      <div className="mb-3 flex items-center gap-2">
+        <span className="font-mono text-[10px] tracking-[0.14em] text-faint">{label}</span>
+        {count != null && (
+          <span className="rounded-full bg-soft px-1.5 py-px font-mono text-[9px] text-faint">{count}</span>
+        )}
+      </div>
       {children}
     </div>
   )
@@ -53,9 +60,9 @@ export default function ProofPanel({
     ]
 
   return (
-    <aside className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-l border-border bg-sidebar">
-      {/* header / back */}
-      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-sidebar px-4 py-3">
+    <aside className="flex w-[384px] shrink-0 flex-col overflow-y-auto border-l border-border bg-sidebar">
+      {/* sticky header / back */}
+      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-sidebar/95 px-4 py-3 backdrop-blur">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:bg-soft hover:text-txt"
@@ -63,7 +70,7 @@ export default function ProofPanel({
           <ArrowLeft className="h-3 w-3" />
           back
         </button>
-        <span className="font-mono text-[10px] tracking-[0.14em] text-faint">PROOF</span>
+        <span className="font-mono text-[10px] tracking-[0.18em] text-faint">PROOF</span>
         <button
           onClick={onBack}
           aria-label="close"
@@ -75,7 +82,7 @@ export default function ProofPanel({
 
       {busy && (
         <div className="flex items-center gap-2 p-6 text-[13px] text-muted">
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Loader2 className="h-4 w-4 animate-spin text-blue" />
           building proof…
         </div>
       )}
@@ -86,22 +93,29 @@ export default function ProofPanel({
       )}
 
       {proof && !busy && (
-        <>
-          {/* subject header */}
-          <div className="border-b border-border p-4">
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+          {/* subject hero — severity-tinted */}
+          <div className="relative overflow-hidden border-b border-border p-4">
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 h-px"
+              style={{ background: `linear-gradient(90deg, ${sevColor(proof.subject.severity_avg)}, transparent)` }}
+            />
             <div className="flex items-center justify-between">
               <span className="font-mono text-[10px] tracking-[0.14em] text-faint">
                 {proof.subject.type.toUpperCase()}
               </span>
               <span
-                className="font-mono text-[11px]"
-                style={{ color: sevColor(proof.subject.severity_avg) }}
+                className="rounded-full px-2 py-0.5 font-mono text-[10px] font-medium"
+                style={{
+                  color: sevColor(proof.subject.severity_avg),
+                  background: `${sevColor(proof.subject.severity_avg)}1a`,
+                }}
               >
-                {proof.subject.members} reports · sev {proof.subject.severity_avg}
+                {sevLabel(proof.subject.severity_avg)} · sev {proof.subject.severity_avg}
               </span>
             </div>
             {proof.subject.label_ar && (
-              <div className="mt-1.5 text-[14px] font-semibold leading-snug text-txt" dir="rtl">
+              <div className="mt-2 text-[15.5px] font-semibold leading-snug text-txt" dir="rtl">
                 {proof.subject.label_ar}
               </div>
             )}
@@ -110,13 +124,14 @@ export default function ProofPanel({
                 {proof.subject.label_en}
               </div>
             )}
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-faint">
+            <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-faint">
+              <span className="text-muted">{proof.subject.members} reports</span>
               <span>{proof.subject.signals} signals</span>
               {proof.subject.first_seen && <span>since {proof.subject.first_seen.slice(0, 10)}</span>}
               {proof.subject.last_seen && <span>→ {proof.subject.last_seen.slice(0, 10)}</span>}
             </div>
             {proof.subject.services.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {proof.subject.services.slice(0, 6).map(([svc, w]) => (
                   <span
                     key={svc}
@@ -130,12 +145,12 @@ export default function ProofPanel({
             )}
           </div>
 
-          {/* download report */}
+          {/* download report — primary CTA */}
           <div className="border-b border-border p-4">
             <a
               href={reportUrl(proof.subject.cluster_id)}
               download
-              className="flex items-center justify-center gap-2 rounded-lg bg-good px-4 py-2.5 text-[13.5px] font-semibold text-[#04130C] transition-opacity hover:opacity-90"
+              className="flex items-center justify-center gap-2 rounded-lg bg-good px-4 py-2.5 text-[13.5px] font-semibold text-[#04130C] shadow-lg shadow-good/20 transition-all hover:-translate-y-0.5 hover:opacity-95"
             >
               <FileSpreadsheet className="h-4 w-4" />
               Download Excel report
@@ -145,31 +160,50 @@ export default function ProofPanel({
             </p>
           </div>
 
-          {/* why-chain causal trace */}
-          <Section label="WHY THIS HAPPENS · 5-WHYS TRACE">
+          {/* why-chain causal trace — numbered stepper */}
+          <Section label="WHY THIS HAPPENS · 5-WHYS">
             <ol className="space-y-0">
               {proof.why_chain.map((w, i) => {
                 const last = i === proof.why_chain.length - 1
                 const txt = isAr(w.because) ? w.because : w.because_en || w.because
                 return (
-                  <li key={w.depth} className="relative pb-3 pl-6">
-                    {!last && <span className="absolute left-[7px] top-5 h-full w-px bg-border" />}
-                    <CornerDownRight
-                      className="absolute left-0 top-0.5 h-4 w-4"
-                      style={{ color: last ? SEV.alert : '#62646D' }}
-                    />
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-faint">
-                      {last ? 'root cause' : w.question || `because #${w.depth}`}
-                    </div>
+                  <li key={w.depth} className="relative pb-4 pl-8 last:pb-0">
+                    {!last && (
+                      <span className="absolute left-[11px] top-6 h-[calc(100%-1.25rem)] w-px bg-border" />
+                    )}
+                    <span
+                      className="absolute left-0 top-0 grid h-[23px] w-[23px] place-items-center rounded-full text-[10px] font-bold"
+                      style={
+                        last
+                          ? { background: SEV.alert, color: '#fff' }
+                          : { background: 'var(--color-soft)', color: 'var(--color-muted)', boxShadow: 'inset 0 0 0 1px var(--color-border)' }
+                      }
+                    >
+                      {last ? '!' : i + 1}
+                    </span>
                     <div
-                      className="mt-0.5 text-[12.5px] leading-snug text-txt"
+                      className="text-[9.5px] font-mono uppercase tracking-[0.14em]"
+                      style={{ color: last ? SEV.alert : 'var(--color-faint)' }}
+                    >
+                      {last ? 'root cause' : `why ${i + 1}`}
+                    </div>
+                    {w.question && !last && (
+                      <div
+                        className="mt-0.5 text-[11.5px] leading-snug text-muted"
+                        dir={isAr(w.question) ? 'rtl' : 'ltr'}
+                      >
+                        {w.question}
+                      </div>
+                    )}
+                    <div
+                      className={`mt-0.5 text-[12.5px] leading-snug ${last ? 'font-semibold' : ''} text-txt`}
                       dir={isAr(txt) ? 'rtl' : 'ltr'}
                     >
                       {txt}
                     </div>
                     {w.evidence?.[0] && (
                       <div
-                        className="mt-1 border-l-2 border-border pl-2 text-[11px] leading-snug text-muted"
+                        className="mt-1.5 rounded-md bg-soft/60 px-2 py-1 text-[11px] leading-snug text-muted"
                         dir={isAr(w.evidence[0]) ? 'rtl' : 'ltr'}
                       >
                         “{w.evidence[0]}”
@@ -181,7 +215,7 @@ export default function ProofPanel({
             </ol>
             {proof.narration && (
               <div
-                className="mt-2 rounded-lg border border-blue/30 bg-blue/10 p-2.5 text-[12px] leading-snug text-txt"
+                className="mt-3 rounded-lg border border-blue/30 bg-blue/10 p-2.5 text-[12px] leading-snug text-txt"
                 dir={isAr(proof.narration) ? 'rtl' : 'ltr'}
               >
                 {proof.narration}
@@ -191,7 +225,7 @@ export default function ProofPanel({
 
           {/* validation verdict + checks */}
           {proof.validation && (
-            <Section label="PROOF STRENGTH · VALIDATION">
+            <Section label="PROOF STRENGTH" count={proof.validation.checks.length}>
               {(() => {
                 const v = proof.validation
                 const ok = v.verdict?.toLowerCase().includes('valid') || v.score >= 0.5
@@ -199,16 +233,16 @@ export default function ProofPanel({
                 const col = ok ? SEV.calm : SEV.alert
                 return (
                   <>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-2.5">
                       <VIcon className="h-4 w-4 shrink-0" style={{ color: col }} />
                       <span className="text-[13px] font-semibold capitalize text-txt">{v.verdict}</span>
                       <span className="ml-auto font-mono text-[11px]" style={{ color: col }}>
-                        {(v.confidence * 100).toFixed(0)}% conf · {v.score.toFixed(2)}
+                        {(v.confidence * 100).toFixed(0)}% · {v.score.toFixed(2)}
                       </span>
                     </div>
                     {v.summary && (
                       <div
-                        className="mt-1.5 text-[12px] leading-snug text-muted"
+                        className="mt-2 text-[12px] leading-snug text-muted"
                         dir={isAr(v.summary) ? 'rtl' : 'ltr'}
                       >
                         {v.summary}
@@ -226,9 +260,19 @@ export default function ProofPanel({
                             <span className="text-[12px] capitalize text-txt">{c.name}</span>
                             <span className="ml-auto font-mono text-[10px] text-faint">{c.score.toFixed(2)}</span>
                           </div>
+                          {/* score bar */}
+                          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-soft">
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${Math.round(Math.min(1, Math.max(0, c.score)) * 100)}%`,
+                                background: c.pass ? SEV.calm : SEV.alert,
+                              }}
+                            />
+                          </div>
                           {c.detail && (
                             <div
-                              className="mt-0.5 pl-5 text-[11px] leading-snug text-muted"
+                              className="mt-1.5 text-[11px] leading-snug text-muted"
                               dir={isAr(c.detail) ? 'rtl' : 'ltr'}
                             >
                               {c.detail}
@@ -245,7 +289,7 @@ export default function ProofPanel({
 
           {/* evidence quotes */}
           {proof.evidence_segments.length > 0 && (
-            <Section label="EVIDENCE · REPRESENTATIVE QUOTES">
+            <Section label="EVIDENCE · QUOTES" count={proof.evidence_segments.length}>
               <div className="space-y-2">
                 {proof.evidence_segments.map((e, i) => (
                   <div key={i} className="rounded-lg border border-border bg-card p-2.5">
@@ -269,12 +313,12 @@ export default function ProofPanel({
             </Section>
           )}
 
-          {/* related cases table */}
+          {/* related cases */}
           {proof.related_cases.length > 0 && (
-            <Section label={`RELATED CASES · ${proof.related_cases.length} SOURCE RECORDS`}>
+            <Section label="RELATED CASES · SOURCE RECORDS" count={proof.related_cases.length}>
               <div className="space-y-1.5">
                 {proof.related_cases.map((c) => (
-                  <div key={c.record_id} className="rounded-lg border border-border bg-card p-2.5">
+                  <div key={c.record_id} className="rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-border/70 hover:bg-cardhi">
                     <div className="flex items-center justify-between gap-2">
                       <span
                         className="truncate font-mono text-[10px] text-muted"
@@ -309,10 +353,12 @@ export default function ProofPanel({
           {fc && spark && spark.length > 1 && (
             <Section label="FORECAST · TREND">
               <div className="flex items-center gap-1.5">
-                <TrendingUp
-                  className={`h-3.5 w-3.5 ${fc.escalation?.escalating ? 'text-danger' : 'text-good'}`}
-                />
-                <span className="text-[12px] text-txt">
+                {fc.escalation?.escalating ? (
+                  <TrendingUp className="h-3.5 w-3.5 text-danger" />
+                ) : (
+                  <TrendingDown className="h-3.5 w-3.5 text-good" />
+                )}
+                <span className="text-[12px] font-medium text-txt">
                   {fc.escalation?.escalating ? 'Escalating' : 'Stable'}
                   {typeof fc.escalation?.ratio === 'number' && (
                     <span className="ml-1 font-mono text-faint">×{fc.escalation.ratio.toFixed(2)}</span>
@@ -328,7 +374,7 @@ export default function ProofPanel({
               </ResponsiveContainer>
             </Section>
           )}
-        </>
+        </motion.div>
       )}
     </aside>
   )

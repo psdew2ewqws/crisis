@@ -213,8 +213,8 @@ function DashboardView({
           </button>
         </div>
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {cards.map((k) => (
-            <KpiCard key={k.title} kpi={k} />
+          {cards.map((k, i) => (
+            <KpiCard key={k.title} kpi={k} index={i} />
           ))}
         </div>
         <div className="mt-4"><SignalVolume service={service} /></div>

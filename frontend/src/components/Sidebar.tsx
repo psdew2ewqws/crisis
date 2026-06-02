@@ -81,7 +81,7 @@ export default function Sidebar({
       <div className="px-4 pb-2">
         <button
           onClick={onRun}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8]"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue py-2.5 text-[13.5px] font-semibold text-white shadow-lg shadow-blue/20 transition-all hover:bg-[#2f76e8] active:scale-[0.98]"
         >
           <Zap className="h-4 w-4 fill-white" />
           Run Analysis
@@ -99,10 +99,11 @@ export default function Sidebar({
             <button
               key={item.label}
               onClick={() => onNavigate(item.label)}
-              className={`group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
+              className={`group relative mb-0.5 flex w-full items-center gap-3 overflow-hidden rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
                 on ? 'bg-cardhi text-txt' : 'text-muted hover:bg-soft hover:text-txt'
               }`}
             >
+              {on && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-blue" />}
               <Icon className={`h-[18px] w-[18px] ${on ? 'text-blue' : 'text-muted group-hover:text-txt'}`} />
               <span className={on ? 'font-medium' : ''}>{item.label}</span>
               {item.badge && (
@@ -125,11 +126,12 @@ export default function Sidebar({
               key={c.id}
               onClick={() => onSelectCase(c.id)}
               dir={/[؀-ۿ]/.test(c.name) ? 'rtl' : 'ltr'}
-              className={`group mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
+              className={`group relative mb-0.5 flex w-full items-center gap-3 overflow-hidden rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
                 on ? 'bg-cardhi text-txt' : 'text-muted hover:bg-soft hover:text-txt'
               }`}
             >
-              <span className={`h-2 w-2 shrink-0 rounded-full ${dot[c.tone]}`} />
+              {on && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-blue" />}
+              <span className={`h-2 w-2 shrink-0 rounded-full ${dot[c.tone]} ${c.tone === 'danger' ? 'shadow-[0_0_6px_1px] shadow-danger/50' : ''}`} />
               <span className={`truncate ${on ? 'font-medium' : 'group-hover:text-txt'}`}>{c.name}</span>
               <span className={`ml-auto shrink-0 font-mono text-[11px] ${score[c.tone]}`}>{c.score}</span>
             </button>
