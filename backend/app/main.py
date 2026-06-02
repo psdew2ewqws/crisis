@@ -64,6 +64,20 @@ try:
 except Exception:
     pass
 
+# multi-agent debate engine: POST /api/debate (NDJSON stream of agents arguing)
+try:
+    from . import debate
+    app.include_router(debate.router)
+except Exception:
+    pass
+
+# LightMem-AEGIS memory: GET /api/memory, POST /api/memory/rebuild
+try:
+    from . import memory_light
+    app.include_router(memory_light.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():

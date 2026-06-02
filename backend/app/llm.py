@@ -70,17 +70,17 @@ try:
 except Exception:  # pragma: no cover
     LLM_MAX_TOKENS = 320
 
-# System framing: bound the model to *narrate the given evidence only*.
+# System framing: bound the model to *narrate the given evidence only*, in
+# Arabic (the platform's users are Arabic-speaking; explanations must be
+# Arabic-first and easy for a non-technical reader).
 SYSTEM_PROMPT = (
-    "You are AEGIS, a crisis-operations analyst for Jordanian public services. "
-    "You are given graph-derived evidence (ranked root-cause clusters with "
-    "citizen-report counts and severity, plus recovered signal counts) that has "
-    "ALREADY been computed deterministically. Your job is ONLY to narrate that "
-    "evidence into a crisp operator brief. Do NOT invent facts, numbers, "
-    "services, or causes that are not in the evidence. Be concise (4-6 "
-    "sentences). Arabic service or cluster labels may appear verbatim; keep "
-    "them as given. State the dominant root cause, why it ranks first, and the "
-    "single recommended action."
+    "أنت AEGIS، محلّل أزمات للخدمات الحكومية الأردنية. تتلقّى أدلّة مُستخلصة من "
+    "الرسم البياني (محاور أسباب جذرية مُرتّبة مع أعداد بلاغات المواطنين والشدّة) "
+    "حُسبت مسبقًا بشكل حتمي. مهمتك فقط أن تصوغ هذه الأدلّة في موجز تشغيلي واضح "
+    "بالعربية الفصحى المبسّطة يفهمه مستخدم عادي. لا تختلق وقائع أو أرقامًا أو "
+    "خدمات أو أسبابًا غير موجودة في الأدلّة. كن موجزًا (٣-٥ جمل). يمكن إبقاء "
+    "أسماء الخدمات أو المحاور العربية كما هي. اذكر السبب الجذري المهيمن، ولماذا "
+    "تصدّر، والإجراء الموصى به الوحيد."
 )
 
 
@@ -254,51 +254,59 @@ def build_context_block(context: Optional[Dict[str, Any]]) -> str:
 # ===========================================================================
 # Grounded deterministic fallback (no network — always works).
 # ===========================================================================
+def _clip_label(text: Any, words: int = 6) -> str:
+    """voc360 cluster labels are sometimes raw citizen sentences — clip to a
+    short, readable phrase so the Arabic brief stays clean."""
+    t = str(text or "").strip()
+    parts = t.split()
+    return (" ".join(parts[:words]) + "…") if len(parts) > words else t
+
+
 def grounded_summary(context: Optional[Dict[str, Any]]) -> str:
-    """Synthesize an operator brief from the evidence dict WITHOUT any model.
+    """Synthesize an Arabic operator brief from the evidence dict WITHOUT a model.
 
     This is the load-bearing fallback: it reads the exact same real voc360
     fields the prompt would, so the narration node stays grounded and useful
-    even when no local LLM is running. Deterministic, side-effect free.
+    even when no local LLM is running. Arabic-first (the readers are Arabic
+    speakers), deterministic, side-effect free.
     """
     context = context or {}
     rcs = context.get("root_causes") or context.get("rootcauses") or []
     stats = context.get("signal_stats") or context.get("stats") or {}
     case = context.get("case")
-    scope = case if case else "the national VOC graph"
+    scope = case if case else "المنظومة الوطنية لأصوات المواطنين"
 
     if not rcs:
         sig = stats.get("signals") if isinstance(stats, dict) else None
-        head = f"Across {sig} citizen signals, " if sig else ""
+        head = f"من بين {sig} إشارة مواطن، " if sig else ""
         return (
-            f"{head}no root-cause cluster cleared the ranking threshold for "
-            f"{scope}. Keep ingesting signals from the_data and re-run the "
-            f"root-cause pass once a dominant cluster emerges."
+            f"{head}لا يوجد محور سبب جذري تجاوز عتبة الترتيب لـ{scope}. "
+            f"واصل تجميع الإشارات من قاعدة البيانات وأعد تحليل الأسباب الجذرية "
+            f"عند بروز محور مُهيمن."
         )
 
     top = rcs[0] if isinstance(rcs[0], dict) else {}
-    label = top.get("label_en") or top.get("label_ar") or top.get("cluster_id") or "the dominant cluster"
+    label = _clip_label(top.get("label_ar") or top.get("label_en") or top.get("cluster_id") or "المحور المهيمن")
     members = top.get("members", top.get("member_count", 0))
     sev = top.get("severity_avg", 0)
     sig_count = top.get("signal_count")
 
     sentences: List[str] = []
     lead = (
-        f"For {scope}, the dominant root cause is '{label}', the highest-ranked "
-        f"of {len(rcs)} problem clusters with {members} citizen reports "
-        f"(avg severity {sev})."
+        f"بالنسبة لـ«{scope}»، السبب الجذري المهيمن هو «{label}»، وهو الأعلى ترتيبًا "
+        f"من بين {len(rcs)} محورًا، بـ{members} بلاغًا من المواطنين (متوسط الشدّة {sev})."
     )
     if sig_count is not None:
-        lead = lead[:-1] + f" and {sig_count} signals recovered to it by text-match."
+        lead = lead[:-1] + f"، وارتبطت به {sig_count} إشارة عبر مطابقة النص."
     sentences.append(lead)
 
     if len(rcs) > 1 and isinstance(rcs[1], dict):
         nxt = rcs[1]
-        nlabel = nxt.get("label_en") or nxt.get("label_ar") or "the next cluster"
+        nlabel = _clip_label(nxt.get("label_ar") or nxt.get("label_en") or "المحور التالي")
         nmem = nxt.get("members", nxt.get("member_count", 0))
         sentences.append(
-            f"It outranks the next cause, '{nlabel}' ({nmem} reports), so it "
-            f"carries the most concentrated citizen harm right now."
+            f"ويتقدّم على «{nlabel}» ({nmem} بلاغًا)، أي إنه يحمل أكبر تركيز "
+            f"للضرر على المواطنين حاليًا."
         )
 
     if isinstance(stats, dict):
@@ -306,8 +314,7 @@ def grounded_summary(context: Optional[Dict[str, Any]]) -> str:
         sources = stats.get("sources")
         if services and sources:
             sentences.append(
-                f"The supporting signal graph spans {services} services and "
-                f"{sources} data sources."
+                f"ويستند ذلك إلى رسم بياني يغطّي {services} خدمة و{sources} مصدر بيانات."
             )
 
     rec = context.get("recommendation")
@@ -315,9 +322,8 @@ def grounded_summary(context: Optional[Dict[str, Any]]) -> str:
         sentences.append(rec.strip())
     else:
         sentences.append(
-            f"Recommended action: route '{label}' to its owning agency, brief "
-            f"the service team, and track whether complaint volume on this "
-            f"cluster falls after intervention."
+            f"التوصية: توجيه «{label}» إلى الجهة المالكة، وإطلاع فريق الخدمة، "
+            f"ومتابعة ما إذا كان حجم البلاغات على هذا المحور ينخفض بعد التدخّل."
         )
 
     return " ".join(sentences)
@@ -353,6 +359,59 @@ def health() -> dict:
         "timeout_s": LLM_TIMEOUT,
         "fallback": "grounded_summary",
     }
+
+
+# ===========================================================================
+# Low-level single-turn chat (reused by the multi-agent debate engine).
+# ===========================================================================
+def chat(
+    system: str,
+    user: str,
+    *,
+    temperature: float = 0.3,
+    max_tokens: Optional[int] = None,
+    timeout: Optional[float] = None,
+) -> Optional[str]:
+    """One-shot chat against the LOCAL model with a caller-supplied system role.
+
+    Unlike :func:`narrate` (which bakes in the narration system prompt), this is a
+    generic primitive so callers — e.g. the debate engine, where each agent has a
+    distinct persona — can pass their own system prompt and sampling. Tries the
+    Ollama-native chat endpoint then the OpenAI-compatible one.
+
+    Returns the generated text, or ``None`` if the local model is unreachable /
+    errors / returns nothing — so callers can fall back deterministically. Never
+    raises.
+    """
+    mt = int(max_tokens) if max_tokens else LLM_MAX_TOKENS
+    to = float(timeout) if timeout else LLM_TIMEOUT
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    # Ollama native /api/chat
+    out = _post_json(
+        f"{LLM_BASE_URL}/api/chat",
+        {"model": LLM_MODEL, "messages": messages, "stream": False,
+         "options": {"temperature": temperature, "num_predict": mt}},
+        to,
+    )
+    if out is not None:
+        text = _extract_text(out)
+        if text:
+            return text.strip()
+    # OpenAI-compatible /v1/chat/completions
+    out = _post_json(
+        f"{LLM_BASE_URL}/v1/chat/completions",
+        {"model": LLM_MODEL, "messages": messages, "stream": False,
+         "temperature": temperature, "max_tokens": mt},
+        to,
+    )
+    if out is not None:
+        text = _extract_text(out)
+        if text:
+            return text.strip()
+    return None
 
 
 # ===========================================================================
@@ -407,6 +466,7 @@ def narrate(prompt: str = "", context: Optional[Dict[str, Any]] = None) -> str:
 
 __all__ = [
     "narrate",
+    "chat",
     "available",
     "health",
     "grounded_summary",
