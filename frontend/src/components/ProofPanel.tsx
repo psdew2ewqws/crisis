@@ -16,7 +16,7 @@ const ROLE_COLOR: Record<string, string> = {
 const SEV: Record<string, string> = { alert: '#F04359', warn: '#FBBF24', calm: '#34D399' }
 const isAr = (s: string | null | undefined) => !!s && /[؀-ۿ]/.test(s)
 const sevColor = (v: number) => (v >= 0.5 ? SEV.alert : v >= 0.3 ? SEV.warn : SEV.calm)
-const sevLabel = (v: number) => (v >= 0.5 ? 'Critical' : v >= 0.3 ? 'Elevated' : 'Nominal')
+const sevLabel = (v: number) => (v >= 0.5 ? 'حرجة' : v >= 0.3 ? 'مرتفعة' : 'عادية')
 
 function Section({ label, count, children }: { label: string; count?: number; children: React.ReactNode }) {
   return (
@@ -105,7 +105,7 @@ export default function ProofPanel({
           className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:bg-soft hover:text-txt"
         >
           <ArrowLeft className="h-3 w-3" />
-          back
+          رجوع
         </button>
         <span className="font-mono text-[10px] tracking-[0.18em] text-faint">PROOF</span>
         <button
@@ -120,7 +120,7 @@ export default function ProofPanel({
       {busy && (
         <div className="flex items-center gap-2 p-6 text-[13px] text-muted">
           <Loader2 className="h-4 w-4 animate-spin text-blue" />
-          building proof…
+          جارٍ تجهيز الإثبات…
         </div>
       )}
       {err && !busy && (
@@ -160,7 +160,7 @@ export default function ProofPanel({
                   background: `${sevColor(proof.subject.severity_avg)}1a`,
                 }}
               >
-                {sevLabel(proof.subject.severity_avg)} · sev {proof.subject.severity_avg}
+                {sevLabel(proof.subject.severity_avg)} · شدّة {proof.subject.severity_avg}
               </span>
             </div>
             {proof.subject.label_ar && (
@@ -174,9 +174,9 @@ export default function ProofPanel({
               </div>
             )}
             <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-faint">
-              <span className="text-muted">{proof.subject.members} reports</span>
-              <span>{proof.subject.signals} signals</span>
-              {proof.subject.first_seen && <span>since {proof.subject.first_seen.slice(0, 10)}</span>}
+              <span className="text-muted">{proof.subject.members} بلاغ</span>
+              <span>{proof.subject.signals} إشارة</span>
+              {proof.subject.first_seen && <span>منذ {proof.subject.first_seen.slice(0, 10)}</span>}
               {proof.subject.last_seen && <span>→ {proof.subject.last_seen.slice(0, 10)}</span>}
             </div>
             {proof.subject.services.length > 0 && (
@@ -202,10 +202,10 @@ export default function ProofPanel({
               className="flex items-center justify-center gap-2 rounded-lg bg-good px-4 py-2.5 text-[13.5px] font-semibold text-[#04130C] shadow-lg shadow-good/20 transition-all hover:-translate-y-0.5 hover:opacity-95"
             >
               <FileSpreadsheet className="h-4 w-4" />
-              Download Excel report
+              تنزيل تقرير Excel
             </a>
-            <p className="mt-2 text-[11px] leading-snug text-muted">
-              Full evidence workbook — why-chain, validation checks, and every source record behind this finding.
+            <p className="mt-2 text-[11px] leading-snug text-muted" dir="rtl">
+              ملف أدلة كامل — سلسلة الأسباب، فحوص التحقّق، وكل سجلّ مصدر وراء هذه النتيجة.
             </p>
           </div>
 
@@ -291,7 +291,7 @@ export default function ProofPanel({
           {showTech && (
           <>
           {/* why-chain causal trace — numbered stepper */}
-          <Section label="WHY THIS HAPPENS · 5-WHYS">
+          <Section label="لماذا تحدث المشكلة · سلسلة الأسباب">
             <ol className="space-y-0">
               {proof.why_chain.map((w, i) => {
                 const last = i === proof.why_chain.length - 1
@@ -355,7 +355,7 @@ export default function ProofPanel({
 
           {/* validation verdict + checks */}
           {proof.validation && (
-            <Section label="PROOF STRENGTH" count={proof.validation.checks.length}>
+            <Section label="قوة الإثبات" count={proof.validation.checks.length}>
               {(() => {
                 const v = proof.validation
                 const ok = v.verdict?.toLowerCase().includes('valid') || v.score >= 0.5
@@ -419,7 +419,7 @@ export default function ProofPanel({
 
           {/* evidence quotes */}
           {proof.evidence_segments.length > 0 && (
-            <Section label="EVIDENCE · QUOTES" count={proof.evidence_segments.length}>
+            <Section label="الأدلة · شهادات المواطنين" count={proof.evidence_segments.length}>
               <div className="space-y-2">
                 {proof.evidence_segments.map((e, i) => (
                   <div key={i} className="rounded-lg border border-border bg-card p-2.5">
@@ -445,7 +445,7 @@ export default function ProofPanel({
 
           {/* related cases */}
           {proof.related_cases.length > 0 && (
-            <Section label="RELATED CASES · SOURCE RECORDS" count={proof.related_cases.length}>
+            <Section label="الحالات ذات الصلة · سجلات المصدر" count={proof.related_cases.length}>
               <div className="space-y-1.5">
                 {proof.related_cases.map((c) => (
                   <div key={c.record_id} className="rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-border/70 hover:bg-cardhi">
@@ -481,7 +481,7 @@ export default function ProofPanel({
 
           {/* forecast sparkline */}
           {fc && spark && spark.length > 1 && (
-            <Section label="FORECAST · TREND">
+            <Section label="التوقّع · الاتجاه">
               <div className="flex items-center gap-1.5">
                 {fc.escalation?.escalating ? (
                   <TrendingUp className="h-3.5 w-3.5 text-danger" />
