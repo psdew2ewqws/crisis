@@ -43,6 +43,16 @@ import os
 import random
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+# Load backend/.env so VOC_DSN is available even when this module is used before
+# `app.db` is imported. Without this, `_resolve_dsn` finds no DSN and the graph
+# silently degrades to the synthetic fallback (import-order-dependent bug).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+except Exception:  # pragma: no cover - dotenv optional
+    pass
+
 # --------------------------------------------------------------------------- #
 # Optional dependency probing (import-safe).                                  #
 # --------------------------------------------------------------------------- #
@@ -169,7 +179,7 @@ WITH top_svc AS (
     WHERE service_id IS NOT NULL
       AND COALESCE(spam_flag, false) = false
       AND COALESCE(duplicate_flag, false) = false
-      AND (%(svc)s IS NULL OR service_id = %(svc)s)
+      AND (%(svc)s::text IS NULL OR service_id = %(svc)s::text)
     GROUP BY service_id
     ORDER BY count(*) DESC
     LIMIT 16
@@ -205,7 +215,7 @@ WITH top_svc AS (
     WHERE service_id IS NOT NULL
       AND COALESCE(spam_flag, false) = false
       AND COALESCE(duplicate_flag, false) = false
-      AND (%(svc)s IS NULL OR service_id = %(svc)s)
+      AND (%(svc)s::text IS NULL OR service_id = %(svc)s::text)
     GROUP BY service_id
     ORDER BY count(*) DESC
     LIMIT 16

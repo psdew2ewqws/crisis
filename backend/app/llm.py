@@ -37,9 +37,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type, TypeVar
+
+from pydantic import BaseModel, ValidationError
 
 # --- optional .env loading, mirrored from db.py so config is consistent ----
 try:  # pragma: no cover - dotenv is optional
@@ -69,6 +72,14 @@ try:
     LLM_MAX_TOKENS = int(_env("LLM_MAX_TOKENS", "320"))
 except Exception:  # pragma: no cover
     LLM_MAX_TOKENS = 320
+
+EMBED_MODEL = _env("EMBED_MODEL", "nomic-embed-text")
+try:
+    EMBED_DIM = int(_env("EMBED_DIM", "768"))
+except Exception:  # pragma: no cover
+    EMBED_DIM = 768
+
+T = TypeVar("T", bound=BaseModel)
 
 # System framing: bound the model to *narrate the given evidence only*, in
 # Arabic (the platform's users are Arabic-speaking; explanations must be
@@ -248,6 +259,10 @@ def build_context_block(context: Optional[Dict[str, Any]]) -> str:
     if isinstance(rec, str) and rec.strip():
         parts.append(f"DETERMINISTIC RECOMMENDATION: {rec.strip()}")
 
+    lessons_block = context.get("past_lessons") or context.get("lessons_block")
+    if isinstance(lessons_block, str) and lessons_block.strip():
+        parts.append(lessons_block.strip())
+
     return "\n".join(parts)
 
 
@@ -414,6 +429,76 @@ def chat(
     return None
 
 
+def _extract_json_object(text: str) -> Optional[dict]:
+    """Pull the first JSON object from model output (handles fenced blocks)."""
+    if not text:
+        return None
+    t = text.strip()
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", t, re.DOTALL | re.IGNORECASE)
+    if m:
+        t = m.group(1)
+    else:
+        start, end = t.find("{"), t.rfind("}")
+        if start >= 0 and end > start:
+            t = t[start : end + 1]
+    try:
+        out = json.loads(t)
+        return out if isinstance(out, dict) else None
+    except Exception:
+        return None
+
+
+def ask_json(
+    system: str,
+    user: str,
+    model: Type[T],
+    *,
+    temperature: float = 0.1,
+    max_tokens: Optional[int] = None,
+    timeout: Optional[float] = None,
+) -> Optional[T]:
+    """One-shot structured JSON via the local model + Pydantic validation."""
+    suffix = (
+        "\n\nReturn ONLY a valid JSON object. No markdown, no commentary, "
+        "no text before or after the JSON."
+    )
+    text = chat(
+        system, user + suffix, temperature=temperature,
+        max_tokens=max_tokens or 480, timeout=timeout or max(LLM_TIMEOUT, 20),
+    )
+    data = _extract_json_object(text or "")
+    if not data:
+        return None
+    try:
+        return model.model_validate(data)
+    except ValidationError:
+        return None
+
+
+def embed(text: str, *, model: Optional[str] = None, timeout: Optional[float] = None) -> Optional[List[float]]:
+    """768-dim embedding via Ollama ``/api/embeddings`` (nomic-embed-text by default)."""
+    if not (text or "").strip():
+        return None
+    m = model or EMBED_MODEL
+    to = float(timeout) if timeout else max(LLM_TIMEOUT, 15.0)
+    out = _post_json(
+        f"{LLM_BASE_URL}/api/embeddings",
+        {"model": m, "prompt": text.strip()},
+        to,
+    )
+    if not isinstance(out, dict):
+        return None
+    emb = out.get("embedding")
+    if isinstance(emb, list) and emb:
+        vec = [float(x) for x in emb]
+        if len(vec) == EMBED_DIM:
+            return vec
+        if len(vec) > EMBED_DIM:
+            return vec[:EMBED_DIM]
+        return vec + [0.0] * (EMBED_DIM - len(vec))
+    return None
+
+
 # ===========================================================================
 # Public entry point.
 # ===========================================================================
@@ -467,6 +552,8 @@ def narrate(prompt: str = "", context: Optional[Dict[str, Any]] = None) -> str:
 __all__ = [
     "narrate",
     "chat",
+    "ask_json",
+    "embed",
     "available",
     "health",
     "grounded_summary",
@@ -474,6 +561,8 @@ __all__ = [
     "LLM_BASE_URL",
     "LLM_MODEL",
     "LLM_TIMEOUT",
+    "EMBED_MODEL",
+    "EMBED_DIM",
     "SYSTEM_PROMPT",
 ]
 

@@ -46,6 +46,11 @@ try:  # the LOCAL narration node (Ollama/OpenAI-compatible + grounded fallback)
 except Exception:  # pragma: no cover - llm should always import, but stay safe
     llm = None  # type: ignore
 
+try:
+    from . import lessons as _lessons_mod
+except Exception:  # pragma: no cover
+    _lessons_mod = None  # type: ignore
+
 # --- optional engines (import-safe; used only when available) ------------------
 try:
     from . import rootcause  # rank_root_causes(limit) -> [...]
@@ -362,11 +367,24 @@ def _llm_phrase(question: str, facts: List[Dict[str, Any]], summary: str,
     """
     if llm is None:
         return summary, "fallback"
+    lessons_block = ""
+    if _lessons_mod is not None and root_causes:
+        try:
+            top = root_causes[0] if isinstance(root_causes[0], dict) else {}
+            lessons_block = _lessons_mod.lessons_context_block(
+                domain=_lessons_mod.infer_domain(case, top.get("label_en") or top.get("label_ar") or ""),
+                root_cause_category=_lessons_mod._slug(top.get("label_en") or top.get("label_ar") or ""),
+                query=question,
+                limit=3,
+            )
+        except Exception:
+            lessons_block = ""
     context = {
         "case": case,
         "question": question,
         "facts": facts,
         "root_causes": root_causes or [],
+        "past_lessons": lessons_block,
     }
     try:
         text = llm.narrate(QA_GROUNDING_PROMPT + f"\n\nQUESTION: {question}", context)

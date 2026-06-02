@@ -251,6 +251,18 @@ def recommend_node(state: DeerState) -> str:
     rc = state.get("root_causes") or []
     try:
         rec = rootcause.recommend(rc[0]) if rc else "No root cause found."
+        try:
+            from . import lessons as _lessons_mod
+            top = rc[0] if rc else {}
+            block = _lessons_mod.lessons_context_block(
+                domain=_lessons_mod.infer_domain(state.get("case"), top.get("label_en") or top.get("label_ar") or ""),
+                root_cause_category=_lessons_mod._slug(top.get("label_en") or top.get("label_ar") or ""),
+                limit=3,
+            )
+            if block:
+                rec = rec + "\n\n" + block
+        except Exception:
+            pass
     except Exception as e:
         rec = f"Recommendation unavailable: {e}"
     state["recommendation"] = rec

@@ -68,6 +68,14 @@ except Exception:  # pragma: no cover
     except Exception:
         _llm = None  # type: ignore
 
+try:  # pragma: no cover - lessons memory (semantic retrieval)
+    from . import lessons as _lessons  # type: ignore
+except Exception:  # pragma: no cover
+    try:
+        import lessons as _lessons  # type: ignore
+    except Exception:
+        _lessons = None  # type: ignore
+
 
 # ===========================================================================
 # Theme map — grounded in the REAL canonical_label_ar values in voc360.
@@ -397,6 +405,17 @@ def _narrate(item: Dict[str, Any]) -> tuple[str, bool]:
         f"severity {item['severity_avg']} ({_sev_word(item['severity_avg'])}). "
         f"Candidate countermeasures: {actions_txt}."
     )
+    lessons_block = ""
+    if _lessons is not None:
+        try:
+            lessons_block = _lessons.lessons_context_block(
+                domain=_lessons.infer_domain(None, item.get("label_en") or item.get("label_ar") or ""),
+                root_cause_category=_lessons._slug(item.get("label_en") or item.get("label_ar") or ""),
+                query=item.get("label_en") or item.get("label_ar"),
+                limit=3,
+            )
+        except Exception:
+            lessons_block = ""
     prompt = (
         "You are an AEGIS public-service operations analyst. Using ONLY the facts "
         "below, write ONE concise paragraph (<=80 words) recommending the single "
@@ -404,8 +423,13 @@ def _narrate(item: Dict[str, Any]) -> tuple[str, bool]:
         "agency and the expected impact. Do not invent numbers, agencies or facts "
         "not given.\n\nFACTS:\n" + facts
     )
+    if lessons_block:
+        prompt += "\n\n" + lessons_block
     try:
-        out = _llm.narrate(prompt)  # type: ignore[attr-defined]
+        out = _llm.narrate(
+            prompt,
+            context={"past_lessons": lessons_block} if lessons_block else None,
+        )  # type: ignore[attr-defined]
         text = (out or "").strip() if isinstance(out, str) else ""
         if len(text) >= 40:
             return text, True

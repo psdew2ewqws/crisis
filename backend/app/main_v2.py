@@ -674,6 +674,14 @@ def get_decisions() -> Dict[str, Any]:
     return {"decisions": _read_decisions(), "source": "store"}
 
 
+def _maybe_lesson_from_decision(decision: Dict[str, Any]) -> None:
+    try:
+        from . import lessons as _lessons_mod
+        _lessons_mod.maybe_reflect_from_decision(decision)
+    except Exception:
+        pass
+
+
 @router.post("/api/decisions")
 def post_decision(payload: DecisionIn) -> Dict[str, Any]:
     if decisions_mod is not None:
@@ -683,6 +691,7 @@ def post_decision(payload: DecisionIn) -> Dict[str, Any]:
                 try:
                     res = fn(payload.model_dump())
                     if isinstance(res, dict):
+                        _maybe_lesson_from_decision(res)
                         return res
                 except Exception:
                     break
@@ -701,6 +710,7 @@ def post_decision(payload: DecisionIn) -> Dict[str, Any]:
         store = _read_decisions()
         store.insert(0, decision)
         _write_decisions(store)
+        _maybe_lesson_from_decision(decision)
         return {"ok": True, "decision": decision}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -728,6 +738,7 @@ def patch_decision(decision_id: str, payload: DecisionPatch) -> Dict[str, Any]:
             except TypeError:
                 row = fn(decision_id, payload.status)  # older 2-arg signature
             if isinstance(row, dict):
+                _maybe_lesson_from_decision(row)
                 return row
     try:
         store = _read_decisions()
@@ -739,6 +750,7 @@ def patch_decision(decision_id: str, payload: DecisionPatch) -> Dict[str, Any]:
                     d["owner"] = payload.authorized_by
                     d["authorized_by"] = payload.authorized_by
                 _write_decisions(store)
+                _maybe_lesson_from_decision(d)
                 return {"ok": True, "decision": d}
     except Exception as e:
         return {"ok": False, "error": str(e)}
