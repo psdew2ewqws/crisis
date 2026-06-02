@@ -362,6 +362,12 @@ EXPERTS: List[Dict[str, str]] = [
      "task": "من منظور المخاطر: أيّ الاستنتاجات تحقّقها ضعيف ويحتاج تدقيقًا أعمق قبل القرار؟ جملتان."},
     {"key": "priority", "name": "محلّل الأولويات",
      "task": "رتّب المحاور حسب الأولوية (الأثر × قابلية التنفيذ) في جملة واحدة."},
+    {"key": "comms", "name": "خبير الاتصال الحكومي",
+     "task": "من منظور التواصل مع الجمهور: ما الرسالة التي يجب توجيهها للمواطنين حول هذه المشكلة؟ جملة واحدة."},
+    {"key": "budget", "name": "خبير الموازنة",
+     "task": "من منظور الكلفة: أيّ المعالجات أعلى أثرًا مقابل أقل كلفة؟ جملة واحدة."},
+    {"key": "legal", "name": "المستشار التنظيمي",
+     "task": "من منظور الأنظمة والإجراءات: هل تشير الشكاوى إلى خلل في إجراء أو لائحة يلزم تعديلها؟ جملة واحدة."},
 ]
 
 
@@ -389,6 +395,15 @@ def _det_expert(ex_key: str, findings: List[Dict[str, Any]]) -> str:
             return (f"تحذير: {len(weak)} من المحاور تقييم تحقّقها ضعيف "
                     f"(منها «{weak[0]['label']}»)؛ يلزم تدقيق أعمق قبل تثبيت القرار.")
         return "المخاطر مقبولة نسبيًا؛ مستويات التحقّق كافية للمضي مع المتابعة."
+    if ex_key == "comms":
+        return (f"من منظور التواصل، يُنصح بإبلاغ المواطنين بأن «{top['label']}» قيد المعالجة "
+                f"وبجدول زمني واضح، لتعزيز الثقة وتقليل تكرار البلاغات.")
+    if ex_key == "budget":
+        return (f"من منظور الكلفة، معالجة «{top['label']}» تبدو الأعلى أثرًا مقابل كلفة معقولة "
+                f"لأنها تعالج أكبر حجم بلاغات بإجراء تشغيلي واحد.")
+    if ex_key == "legal":
+        return ("من منظور الأنظمة، يُرجّح أن تكون المشكلة في إجراء تشغيلي أو مدة خدمة تتجاوز "
+                "المعيار؛ يُنصح بمراجعة اللائحة المنظِّمة وتحديثها إن لزم.")
     # priority
     return f"ترتيب الأولوية المقترح: {names} — بدءًا بالأعلى أثرًا وقابليةً للتنفيذ."
 
@@ -433,7 +448,7 @@ def run_deep_research(top_k: int = 5) -> Iterator[Dict[str, Any]]:
                "members": s.get("members"), "topics": len(mem)}
 
         # per-topic delegates for this cluster
-        for m in mem[:5]:
+        for m in mem[:8]:
             text = None
             if using_llm:
                 try:
@@ -482,6 +497,27 @@ def run_deep_research(top_k: int = 5) -> Iterator[Dict[str, Any]]:
         transcript.append({"name": ex["name"], "text": text})
         agents += 1
         yield {"type": "turn", "group": "لجنة الخبراء", "role": ex["key"], "agent": ex["name"], "text": text, "engine": eng}
+
+    # ── expert rebuttal round — each expert gives a final position after hearing
+    #    the panel (a second pass; more voices, closer to a full deliberation) ──
+    yield {"type": "phase", "phase": "rebuttal", "label": "لجنة الخبراء · الجولة الثانية"}
+    for ex in EXPERTS:
+        text = None
+        if using_llm:
+            try:
+                prior = "\n".join(f"{t['name']}: {t['text']}" for t in transcript[-6:])
+                text = llm.chat(_BASE_SYS + f" دورك: {ex['name']} (جولة ثانية).",
+                                f"{panel_ctx}\n\nالنقاش:\n{prior}\n\nبعد سماع البقية، اذكر موقفك النهائي في جملة واحدة موجزة.",
+                                temperature=0.4, max_tokens=90, timeout=9)
+            except Exception:
+                text = None
+        eng = "llm" if text else "grounded"
+        if not text:
+            top = findings[0] if findings else {}
+            text = f"{ex['name']}: أتّفق على أولوية «{top.get('label','')}» مع مراعاة ملاحظات اللجنة في التنفيذ."
+        agents += 1
+        yield {"type": "turn", "group": "لجنة الخبراء · الجولة الثانية", "role": ex["key"],
+               "agent": f"{ex['name']} · ختام", "text": text, "engine": eng}
 
     # ── cross-cluster synthesis ──
     top = findings[0] if findings else {}

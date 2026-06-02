@@ -129,6 +129,18 @@ export default function ProofPanel({
 
       {proof && !busy && (
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+          {/* PLAIN-LANGUAGE summary — for a non-technical reader, shown first */}
+          {proof.plain && (
+            <div className="border-b border-border bg-blue/5 p-4">
+              <div className="mb-1.5 flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-blue">
+                <Layers className="h-3 w-3" /> باختصار · IN PLAIN TERMS
+              </div>
+              <p dir="rtl" className="text-[13.5px] leading-[1.9] text-txt">
+                {proof.plain}
+              </p>
+            </div>
+          )}
+
           {/* subject hero — severity-tinted */}
           <div className="relative overflow-hidden border-b border-border p-4">
             <div

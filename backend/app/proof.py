@@ -55,6 +55,46 @@ router = APIRouter()
 XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+def _short_phrase(text: Any, words: int = 6) -> str:
+    """Clip a raw cluster label (often a citizen sentence) to a short phrase."""
+    t = str(text or "").strip()
+    parts = t.split()
+    return (" ".join(parts[:words]) + "…") if len(parts) > words else t
+
+
+def _plain_summary(subject: Dict[str, Any], why: Dict[str, Any]) -> str:
+    """A jargon-free, one-paragraph Arabic explanation for a NON-technical reader.
+
+    No cluster ids, no confidence scores, no 'depth' — just: what citizens are
+    complaining about, how big it is, which service, the deeper cause, and the
+    suggested next step. This is the 'ببساطة' line shown at the top of the panel.
+    """
+    label = _short_phrase(subject.get("label_ar") or subject.get("label_en") or "هذه المشكلة")
+    members = subject.get("members") or 0
+    services = subject.get("services") or []
+    svc = services[0][0] if services and isinstance(services[0], (list, tuple)) and services[0] else None
+    # prefer the ARABIC root cause (last why-step's `because`); the top-level
+    # `root` field is the English gloss, which we avoid in the plain-Arabic line.
+    chain = (why or {}).get("why_chain") or []
+    root_ar = ""
+    if chain:
+        last = chain[-1] or {}
+        root_ar = str(last.get("because") or "").split("(")[0].strip()
+    if not root_ar:
+        root_ar = str((why or {}).get("root") or "").split("(")[0].strip()
+
+    parts = [f"باختصار: يشتكي المواطنون بشأن «{label}»"]
+    if members:
+        parts.append(f"، وقد رصدنا {members} بلاغًا حول هذا الموضوع")
+    if svc:
+        parts.append(f"، أكثرها مرتبط بخدمة «{svc}»")
+    parts.append(".")
+    if root_ar and root_ar != label:
+        parts.append(f" والسبب الأعمق وراء ذلك هو {root_ar}.")
+    parts.append(" الخطوة المقترحة: إحالة الموضوع إلى الجهة المالكة لمعالجة جذره، ثم متابعة هل تنخفض الشكاوى بعد المعالجة.")
+    return "".join(parts)
+
+
 # =========================================================================== #
 # Subject resolution + bundle assembly helpers (read-only, never raise).      #
 # =========================================================================== #
@@ -282,6 +322,7 @@ def proof(
     return {
         "ok": True,
         "subject": subject,
+        "plain": _plain_summary(subject, why),
         "why_chain": why["why_chain"],
         "root": why["root"],
         "narration": why["narration"],

@@ -59,7 +59,7 @@ _STORE = os.path.join(_DATA_DIR, "memory_light.json")
 # Hyperparameters (mirroring the paper's knobs, scoped to segment granularity).
 RELEVANCE_MIN = 1        # min shared dominant-vocab terms to keep a segment (Light1 compression)
 DEDUP_JACCARD = 0.82     # near-duplicate segment threshold (Light1 compression)
-MAX_TOPICS = 6           # topic groups kept per cluster (Light1 segmentation)
+MAX_TOPICS = 8           # topic groups kept per cluster (Light1 segmentation)
 QUOTES_PER_TOPIC = 2     # representative quotes per consolidated entry (Light2)
 SEGMENTS_PER_CLUSTER = 200
 

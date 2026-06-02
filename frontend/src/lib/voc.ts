@@ -150,6 +150,7 @@ export interface Forecast {
 export interface ProofBundle {
   ok: boolean
   subject: ProofSubject
+  plain?: string
   why_chain: WhyStep[]
   root: string
   narration: string
