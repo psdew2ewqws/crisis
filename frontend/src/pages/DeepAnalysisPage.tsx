@@ -724,7 +724,7 @@ export default function DeepAnalysisPage() {
             </h1>
             <p className="mt-1.5 flex items-center gap-2 text-[14px] text-muted">
               <Database className="h-3.5 w-3.5" />
-              Grounded 5-Whys · forecast · validation over real voc360
+              تحليل مؤصَّل · سلسلة الأسباب · التوقّع · التحقّق على بيانات voc360 الحقيقية
               {causes.length > 0 && (
                 <span className="text-faint">· {causes.length} root-cause clusters in scope</span>
               )}
@@ -754,12 +754,12 @@ export default function DeepAnalysisPage() {
         <div className="mt-6 rounded-xl border border-border bg-card p-4">
           <div className="mb-3 flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
             <Network className="h-3.5 w-3.5" />
-            ANALYSIS TARGET
+            موضوع التحليل
           </div>
           <div className="flex flex-col gap-3 lg:flex-row">
             {/* services */}
             <div className="min-w-0 flex-1">
-              <div className="mb-1.5 text-[11px] text-muted">Service</div>
+              <div className="mb-1.5 text-[11px] text-muted">الخدمة</div>
               <div className="flex flex-wrap gap-1.5">
                 {services.map((s) => {
                   const on = scope?.type === 'service' && scope.key === s
@@ -782,7 +782,7 @@ export default function DeepAnalysisPage() {
             </div>
             {/* clusters */}
             <div className="min-w-0 flex-[1.4]">
-              <div className="mb-1.5 text-[11px] text-muted">Root-cause cluster (RIL)</div>
+              <div className="mb-1.5 text-[11px] text-muted">محور السبب الجذري (RIL)</div>
               <div className="flex flex-wrap gap-1.5">
                 {causes.slice(0, 8).map((c) => {
                   const on = scope?.type === 'cluster' && scope.key === c.cluster_id
@@ -845,7 +845,7 @@ export default function DeepAnalysisPage() {
             <div className="flex items-center justify-between border-b border-border px-5 py-3">
               <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
                 <Sparkles className="h-3.5 w-3.5" />
-                WHY-CHAIN · ROOT-CAUSE GRAPH
+                سلسلة الأسباب · رسم الأسباب الجذرية
               </div>
               <div className="flex items-center gap-2">
                 {whys.engine && <EngineBadge engine={whys.engine} />}
@@ -1001,7 +1001,7 @@ function SuggestedQuestions({
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
           <Sparkles className="h-3.5 w-3.5 text-warn" />
-          SUGGESTED QUESTIONS
+          أسئلة مقترحة
           {data.grounded === false && <span className="text-faint">· awaiting backend</span>}
         </div>
         {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />}
@@ -1126,7 +1126,7 @@ function ValidationBadge({ data, busy }: { data: ValidateResponse; busy: boolean
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
           <ShieldCheck className="h-3.5 w-3.5" />
-          CASE VALIDATION
+          التحقّق من القضية
         </div>
         {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />}
       </div>
