@@ -262,3 +262,196 @@ export async function* runFlow(c?: string): AsyncGenerator<FlowEvent> {
     for (const ln of lines) if (ln.trim()) yield JSON.parse(ln) as FlowEvent
   }
 }
+
+// =========================================================================== //
+// Scenario engine — crisis detection + prediction for a NOVEL situation.       //
+// POST /api/scenario/detect streams NDJSON stages; each line is a ScenarioEvent.//
+// =========================================================================== //
+export interface ScenarioCitation {
+  source_case_id?: string
+  ts?: string
+  kind?: 'success' | 'failure'
+  outcome?: string
+  outcome_ar?: string
+  risk_source?: string
+  risk_source_ar?: string
+  lesson?: string
+  relevance?: number
+}
+export interface ScenarioAgent {
+  key: string
+  name: string
+  score: number
+  reason: string
+  floor: boolean
+}
+export interface ScenarioSeriesPoint {
+  step: number
+  mean_negativity: number
+  n_critical: number
+}
+export interface ScenarioSeir {
+  peak_negativity: number
+  peak_n_critical: number
+  peak_critical_frac: number | null
+  time_to_peak: number
+  ticks_to_settle: number
+  escalating: boolean
+  severity: 'low' | 'elevated' | 'critical'
+}
+export interface ScenarioEscalation {
+  source: 'forecast' | 'simulation'
+  escalating: boolean
+  ratio?: number
+  horizon_days?: number
+  forecast_source?: string
+  peak_critical_frac?: number | null
+  ticks_to_settle?: number
+  note?: string
+}
+export interface ScenarioDetection {
+  is_crisis: boolean
+  severity: 'low' | 'elevated' | 'critical'
+  severity_ar: string
+  escalating: boolean
+  escalation_source?: string
+  has_precedent: boolean
+}
+export interface ScenarioWhichWorked {
+  intervention: string
+  risk_reduction: number
+  source_case_id?: string
+  ts?: string
+  risk_source?: string
+  risk_source_ar?: string
+}
+export interface ScenarioPrediction {
+  likely_outcome: string | null
+  likely_outcome_ar: string | null
+  which_intervention_worked: ScenarioWhichWorked | null
+  risk_trajectory: {
+    risk_before?: number | null
+    risk_after?: number | null
+    risk_reduction?: number | null
+    risk_source?: string | null
+    risk_source_ar?: string | null
+  }
+  avoid: { warning: string; avoid_when: string; source_case_id?: string }[]
+}
+export interface ScenarioConfidence {
+  band: 'high' | 'medium' | 'low'
+  band_ar: string
+  score: number
+  breakdown: {
+    mean_relevance: number
+    outcome_agreement: number
+    validation_factor: number
+    distinct_precedents: number
+  }
+}
+export interface ScenarioEvent {
+  stage: 'parse' | 'retrieve' | 'select_agents' | 'simulate' | 'debate' | 'detect_predict' | 'done'
+  // parse
+  script?: 'ar' | 'latin'
+  domain?: string
+  using_llm?: boolean
+  warnings?: string[]
+  // retrieve
+  count?: number
+  cases?: ScenarioCitation[]
+  best_relevance?: number
+  // select_agents
+  agents?: ScenarioAgent[]
+  engine?: string
+  // simulate
+  available?: boolean
+  risk_before?: number
+  risk_after?: number
+  risk_reduction?: number
+  intervention_strength?: number
+  n_nodes?: number
+  seir_before?: ScenarioSeir
+  seir_after?: ScenarioSeir
+  series_before?: ScenarioSeriesPoint[]
+  series_after?: ScenarioSeriesPoint[]
+  escalation?: ScenarioEscalation
+  // debate
+  role?: string
+  agent?: string
+  text?: string
+  // detect_predict
+  detection?: ScenarioDetection
+  prediction?: ScenarioPrediction
+  confidence?: ScenarioConfidence
+  degradation_flags?: string[]
+  degradation_flags_ar?: string[]
+  citations?: ScenarioCitation[]
+  // done
+  aborted?: boolean
+  reason?: string
+}
+export interface ScenarioInput {
+  text: string
+  domain?: string
+  horizon_days?: number
+  run_debate?: boolean
+  top_k?: number
+  case_hint?: string
+}
+
+// Streams POST /api/scenario/detect, invoking onEvent per NDJSON line.
+export async function streamScenario(
+  body: ScenarioInput,
+  onEvent: (e: ScenarioEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/api/scenario/detect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!res.body) return
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += dec.decode(value, { stream: true })
+    let i: number
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim()
+      buf = buf.slice(i + 1)
+      if (line) {
+        try {
+          onEvent(JSON.parse(line) as ScenarioEvent)
+        } catch {
+          /* ignore partial / malformed line */
+        }
+      }
+    }
+  }
+}
+
+// Approval-gated write-back of an acted-on scenario into the lessons RAG.
+export interface ScenarioRetainInput {
+  text: string
+  domain?: string
+  intervention: string
+  risk_before: number
+  risk_after: number
+  outcome?: string
+  worked?: boolean
+  source_case_id?: string
+  confidence?: number
+  approved: boolean
+}
+export async function retainScenario(body: ScenarioRetainInput): Promise<{ stored: boolean; message_ar?: string; reason?: string }> {
+  const res = await fetch(`${BASE}/api/scenario/retain`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return res.json()
+}
