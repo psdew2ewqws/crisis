@@ -61,6 +61,14 @@ try:
     from . import lessons_pinecone as _vs
 except Exception:  # pragma: no cover
     _vs = None  # type: ignore
+try:
+    from . import scenario_runs
+except Exception:  # pragma: no cover
+    scenario_runs = None  # type: ignore
+try:
+    from . import db
+except Exception:  # pragma: no cover
+    db = None  # type: ignore
 
 router = APIRouter()
 NDJSON = "application/x-ndjson"
@@ -97,6 +105,9 @@ class ScenarioIn(BaseModel):
     run_debate: bool = False
     top_k: int = 6
     case_hint: Optional[str] = None     # e.g. "service:Sanad" / "cluster:<id>"
+    location: Optional[str] = None      # governorate (from the dropdown)
+    service: Optional[str] = None       # service_id (from the dropdown)
+    solution: Optional[str] = None      # operator's proposed solution to validate/optimize
 
 
 class RetainIn(BaseModel):
@@ -197,18 +208,22 @@ def simulate_scenario(
     top_lesson: Optional[dict] = None,
     *,
     steps: int = 40,
+    strength: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Build the scenario graph (synthetic fallback when offline / not in voc360) and run
-    the before/after intervention. intervention_strength is SEEDED from the top retrieved
-    success lesson's measured risk reduction. Returns a deterministic readout; never raises."""
+    the before/after intervention. intervention_strength is taken from ``strength`` when
+    given (the solution-evaluator seeds it from the proposed solution's alignment), else
+    from the top retrieved success lesson's measured risk reduction. Never raises."""
     if mesa_sim is None:
         return {"available": False}
-    # seed intervention strength from the precedent (bounded), else the default
-    strength = mesa_sim.DEFAULT_INTERVENTION_STRENGTH
-    if top_lesson is not None:
-        imp = _improvement(top_lesson)            # 0..100 risk points reduced
-        if imp > 0:
-            strength = max(0.3, min(0.9, imp / 100.0 + 0.3))
+    # explicit strength wins; else seed from the precedent (bounded); else the default
+    if strength is None:
+        strength = mesa_sim.DEFAULT_INTERVENTION_STRENGTH
+        if top_lesson is not None:
+            imp = _improvement(top_lesson)        # 0..100 risk points reduced
+            if imp > 0:
+                strength = max(0.3, min(0.9, imp / 100.0 + 0.3))
+    strength = max(0.1, min(0.95, float(strength)))
     try:
         graph = mesa_sim.build_graph_for_case(case_hint)
         n_nodes = mesa_sim._g_node_count(graph)
@@ -461,6 +476,126 @@ def _ev(stage: str, **data) -> bytes:
     return (json.dumps({"stage": stage, **data}, ensure_ascii=False) + "\n").encode("utf-8")
 
 
+# --------------------------------------------------------------------------- #
+# solution validator / optimizer                                              #
+# --------------------------------------------------------------------------- #
+def _overlap(sol_tokens: set, text: str) -> float:
+    t = {w for w in re.split(r"\W+", (text or "").lower()) if len(w) > 2}
+    if not sol_tokens or not t:
+        return 0.0
+    return len(sol_tokens & t) / len(sol_tokens)
+
+
+def _optimize_solution(sol: str, graft: Optional[str], alignment: str, using_llm: bool) -> str:
+    g = (graft or "").strip()[:160]
+    if using_llm and llm is not None:
+        try:
+            sysmsg = ("أنت مستشار أزمات. حسّن الحل المقترح بإيجاز بالعربية الفصحى المبسّطة، "
+                      "مستندًا إلى ما نجح تاريخيًّا فقط، دون اختلاق أرقام أو وقائع.")
+            user = (f"الحل المقترح: {sol}\n"
+                    + (f"تدخّل ناجح سابق مشابه: {g}\n" if g else "")
+                    + "أعطِ نسخة محسّنة من الحل في جملتين، تبدأ بالحل مباشرة.")
+            out = llm.chat(sysmsg, user, temperature=0.4, max_tokens=180, timeout=12)
+            if out:
+                return out.strip()
+        except Exception:
+            pass
+    if alignment == "matches_anti_pattern":
+        return ("تنبيه: حلّك يقترب من نمط فشل سابق. عدّله ليعالج جذر المشكلة"
+                + (f"، مع الاستفادة ممّا نجح تاريخيًّا: «{g}»." if g else "."))
+    if g:
+        return (f"حلّك في الاتجاه الصحيح. لتعزيز الأثر، ادمج ما نجح تاريخيًّا: «{g}»، "
+                f"مع متابعة قابلة للقياس بعد التطبيق.")
+    return "حلّك جديد دون سابقة قريبة؛ طبّقه على نطاق محدود أولًا وقِس الأثر قبل التعميم."
+
+
+def _evaluate_solution(text: str, solution: str, cases: List[dict],
+                       case_hint: Optional[str], using_llm: bool) -> Dict[str, Any]:
+    sol = (solution or "").strip()
+    sol_tokens = {w for w in re.split(r"\W+", sol.lower()) if len(w) > 2}
+    successes = [c for c in cases if (c.get("kind") or "success") == "success"]
+    failures = [c for c in cases if c.get("kind") == "failure"]
+
+    best_succ, best_succ_score = None, 0.0
+    for c in successes:
+        s = _overlap(sol_tokens, c.get("intervention"))
+        if s > best_succ_score:
+            best_succ, best_succ_score = c, s
+    best_fail, best_fail_score = None, 0.0
+    for c in failures:
+        s = max(_overlap(sol_tokens, c.get("intervention")),
+                _overlap(sol_tokens, c.get("applicable_when")))
+        if s > best_fail_score:
+            best_fail, best_fail_score = c, s
+
+    if best_fail_score >= 0.4 and best_fail_score >= best_succ_score:
+        alignment, alignment_ar = "matches_anti_pattern", "يشبه نمطًا فاشلًا سابقًا — يُنصح بتعديله"
+    elif best_succ_score >= 0.3:
+        alignment, alignment_ar = "aligned_with_success", "متوافق مع تدخّل ناجح سابق"
+    else:
+        alignment, alignment_ar = "novel", "حلّ جديد لا سابقة قريبة له"
+    align_score = round(best_succ_score, 3)
+
+    optimized = _optimize_solution(sol, best_succ.get("intervention") if best_succ else None,
+                                   alignment, using_llm)
+
+    # expected results: simulate WITH this solution; strength seeded from alignment
+    strength = max(0.35, min(0.9, 0.4 + 0.45 * align_score))
+    sim = simulate_scenario(case_hint, None, strength=strength)
+    expected = {
+        "risk_before": sim.get("risk_before"),
+        "risk_after": sim.get("risk_after"),
+        "risk_reduction": sim.get("risk_reduction"),
+        "escalating": bool((sim.get("seir_before") or {}).get("escalating")),
+        "engine": sim.get("engine"),
+    }
+    band = ("high" if alignment == "aligned_with_success" and align_score >= 0.5
+            else "medium" if best_succ_score >= 0.3 else "low")
+    return {
+        "alignment": alignment,
+        "alignment_ar": alignment_ar,
+        "alignment_score": align_score,
+        "matched_success": _citation(best_succ) if best_succ else None,
+        "matched_anti_pattern": ({"warning": (best_fail.get("lesson_text") or "")[:200],
+                                  "source_case_id": best_fail.get("source_case_id")}
+                                 if (best_fail and best_fail_score >= 0.4) else None),
+        "optimized_solution": optimized,
+        "expected_results": expected,
+        "confidence_band": band,
+        "confidence_band_ar": BAND_AR.get(band, band),
+    }
+
+
+def _feed_provisional(text: str, domain: str, service: str, location: str,
+                      verdict: dict, sim: dict) -> None:
+    """LEARN: write this run back into the lessons RAG as a LOW-WEIGHT provisional
+    precedent (deterministic id, confidence 0.2, risk_source='run')."""
+    if lessons is None:
+        return
+    try:
+        pred = verdict.get("prediction") or {}
+        rb, ra = sim.get("risk_before"), sim.get("risk_after")
+        rid = (scenario_runs.run_id(text, service or "", location or "")
+               if scenario_runs else "run:" + lessons._slug(text))
+        payload = lessons.ReflectIn(
+            domain=domain,
+            root_cause_category=lessons._slug(text)[:48],
+            root_cause_details=text.strip()[:1000],
+            intervention=((pred.get("which_intervention_worked") or {}).get("intervention")
+                          or "محاكاة سيناريو (تدخّل مقترح آليًّا)"),
+            risk_before=float(rb) if rb is not None else 50.0,
+            risk_after=float(ra) if ra is not None else 50.0,
+            outcome="contained",
+            worked=True,
+            source_case_id=rid,
+            confidence=0.2,
+            risk_source="run",
+        )
+        lessons.reflect_and_store_lesson(payload)
+    except Exception:
+        pass
+
+
 def run_scenario(body: ScenarioIn) -> Iterator[bytes]:
     text_raw = (body.text or "").strip()
     text = _neutralize(text_raw)
@@ -519,6 +654,15 @@ def run_scenario(body: ScenarioIn) -> Iterator[bytes]:
     yield _ev("retrieve", count=len(cases),
               cases=[_citation(c) for c in cases], best_relevance=round(best_rel, 4))
 
+    # ---- recall similar PAST RUNS (learning memory) ----
+    if scenario_runs is not None:
+        try:
+            past = scenario_runs.recall_similar(text, domain, limit=3)
+            if past:
+                yield _ev("history", runs=past, total=scenario_runs.stats().get("total_runs", 0))
+        except Exception:
+            pass
+
     # ---- select agents ----
     roster = []
     if agent_router is not None:
@@ -534,9 +678,14 @@ def run_scenario(body: ScenarioIn) -> Iterator[bytes]:
               engine=(roster[0]["engine"] if roster else "grounded"))
 
     # ---- simulate ----
+    # Build the case from the dropdowns first (service seeds the graph directly; a
+    # location scopes it by governorate), then fall back to a retrieved cluster.
     case_hint = body.case_hint
+    if not case_hint and body.service:
+        case_hint = f"service:{body.service}"
+    if not case_hint and body.location:
+        case_hint = f"gov:{body.location}"
     if not case_hint:
-        # seed the graph around the top retrieved cluster, when present
         for c in cases:
             sid = str(c.get("source_case_id") or "")
             if sid.startswith("cluster:"):
@@ -562,12 +711,62 @@ def run_scenario(body: ScenarioIn) -> Iterator[bytes]:
     engine = "grounded" if not qvec_real else "llm"
     verdict = _fuse(text, cases, sim, esc, flags, engine)
     yield _ev("detect_predict", **verdict)
+
+    # ---- optional: validate + optimize the operator's proposed solution ----
+    if (body.solution or "").strip():
+        try:
+            yield _ev("solution_eval",
+                      **_evaluate_solution(text, body.solution, cases, case_hint, using_llm))
+        except Exception:
+            pass
+
+    # ---- LEARN + SAVE this iteration ----
+    try:
+        if scenario_runs is not None:
+            scenario_runs.save_run(text=text, domain=domain, service=body.service or "",
+                                   location=body.location or "", verdict=verdict, sim=sim)
+        _feed_provisional(text, domain, body.service or "", body.location or "", verdict, sim)
+    except Exception:
+        pass
+
     yield _ev("done", engine=engine)
 
 
 # --------------------------------------------------------------------------- #
 # routes                                                                      #
 # --------------------------------------------------------------------------- #
+_OPTIONS_CACHE: Optional[dict] = None
+
+
+@router.get("/api/scenario/options")
+def scenario_options() -> dict:
+    """Locations (governorates) + services for the scenario dropdowns, by volume."""
+    global _OPTIONS_CACHE
+    if _OPTIONS_CACHE is not None:
+        return _OPTIONS_CACHE
+    out: dict = {"locations": [], "services": []}
+    if db is not None:
+        try:
+            out["locations"] = [
+                {"value": r["governorate"], "count": int(r["n"])}
+                for r in db.fetchall(
+                    "select governorate, count(*) n from the_data "
+                    "where governorate is not null and governorate <> '' group by 1 order by 2 desc")
+                if r.get("governorate")
+            ]
+            out["services"] = [
+                {"value": r["service_id"], "count": int(r["n"])}
+                for r in db.fetchall(
+                    "select service_id, count(*) n from the_data "
+                    "where service_id is not null and service_id <> '' group by 1 order by 2 desc")
+                if r.get("service_id")
+            ]
+            _OPTIONS_CACHE = out   # cache only on success
+        except Exception:
+            pass
+    return out
+
+
 @router.post("/api/scenario/detect")
 def scenario_detect(body: ScenarioIn) -> StreamingResponse:
     return StreamingResponse(run_scenario(body), media_type=NDJSON)

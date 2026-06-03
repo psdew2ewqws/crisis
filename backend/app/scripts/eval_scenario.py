@@ -42,8 +42,10 @@ def _same_type(a: dict, b: dict) -> bool:
 
 def evaluate(k: int = 12, top_k: int = 5) -> Dict[str, Any]:
     all_rows = lessons._json_load()
-    usable = [r for r in all_rows if (r.get("root_cause_details") or r.get("lesson_text"))
-              and r.get("source_case_id")]
+    usable = [r for r in all_rows
+              if (r.get("root_cause_details") or r.get("lesson_text"))
+              and r.get("source_case_id")
+              and not str(r.get("source_case_id")).startswith("run:")]  # skip provisional runs
     sample = usable[: max(1, min(k, len(usable)))]
     engine = "llm" if (lessons.llm and lessons.llm.available()) else "grounded-keyword"
 
