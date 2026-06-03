@@ -485,6 +485,23 @@ def validate_case(cluster_id: str, service: Optional[str] = None) -> dict[str, A
     verdict, confidence, score100 = _decide(checks)
     summary = _summary(target, verdict, score100, checks)
 
+    # Optional causal-REFUTATION advisory (DoWhy, env-gated). Does NOT change the
+    # five-check verdict math — it only nudges confidence by a small bounded amount
+    # when the cluster→outcome association is shown robust (or spurious) on real data.
+    causal = None
+    try:
+        from . import causal_validate
+        if causal_validate.available():
+            services = [s for s, _ in (cluster_link.cluster_services(cluster_id) if cluster_link else [])]
+            causal = causal_validate.refute(cluster_id, services)
+            if causal.get("ok"):
+                if causal.get("robust"):
+                    confidence = min(1.0, confidence + 0.05)
+                elif causal.get("spurious"):
+                    confidence = max(0.0, confidence - 0.08)
+    except Exception:
+        causal = None
+
     return {
         "verdict": verdict,
         "confidence": round(confidence, 3),
@@ -494,6 +511,7 @@ def validate_case(cluster_id: str, service: Optional[str] = None) -> dict[str, A
         "summary": summary,
         "tone": VERDICT_TONE[verdict],
         "weights": WEIGHTS,
+        "causal": causal,
     }
 
 
