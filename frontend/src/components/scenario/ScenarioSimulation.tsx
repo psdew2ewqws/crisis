@@ -36,6 +36,9 @@ import ResultSummary from './ResultSummary'
 import ScenarioSuggestions from './ScenarioSuggestions'
 import EvidencePanel from './EvidencePanel'
 import JordanDroughtStudy from './JordanDroughtStudy'
+import ScenarioReport, { type ReportData } from './ScenarioReport'
+import { downloadElementAsPdf } from '../../lib/pdf'
+import { FileText, Download, X } from 'lucide-react'
 
 // Linear stage order — drives the stepper's "current = next logical stage".
 const STAGE_ORDER: StageKey[] = ['parse', 'retrieve', 'select_agents', 'simulate', 'detect_predict']
@@ -97,6 +100,22 @@ export default function ScenarioSimulation() {
   const [evidence, setEvidence] = useState<ScenarioEvidence[]>([])
   const [evidenceShown, setEvidenceShown] = useState(false)
   const [evidenceAbstained, setEvidenceAbstained] = useState(false)
+  const [showReport, setShowReport] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+
+  const downloadReport = useCallback(async () => {
+    const el = document.getElementById('aegis-report')
+    if (!el) return
+    setDownloading(true)
+    try {
+      const stamp = new Date().toISOString().slice(0, 10)
+      await downloadElementAsPdf(el, `AEGIS-Report-${stamp}.pdf`)
+    } catch {
+      /* user can retry */
+    } finally {
+      setDownloading(false)
+    }
+  }, [])
 
   const abortRef = useRef<AbortController | null>(null)
   const startedRef = useRef(false)
@@ -259,6 +278,22 @@ export default function ScenarioSimulation() {
   const warnings = parse?.warnings ?? []
   const started = startedRef.current
 
+  const reportData: ReportData = {
+    text,
+    domain: parse?.domain,
+    location,
+    service,
+    engine: doneEngine ?? sim?.engine ?? null,
+    generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
+    detection: verdict?.detection ?? undefined,
+    prediction: verdict?.prediction ?? undefined,
+    confidence: verdict?.confidence ?? undefined,
+    flagsAr,
+    sim,
+    solutionEval,
+    evidence,
+  }
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-[1340px] px-8 py-7">
@@ -275,6 +310,16 @@ export default function ScenarioSimulation() {
               حاكِ أزمة جديدة: استرجاع السوابق ← اختيار الوكلاء ← محاكاة ← كشف وتنبؤ
             </p>
           </div>
+          {verdict && (
+            <button
+              type="button"
+              onClick={() => setShowReport(true)}
+              className="flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-[13.5px] font-medium text-muted transition-colors hover:bg-cardhi hover:text-txt"
+            >
+              <FileText className="h-4 w-4" />
+              <span dir="auto">تقرير كامل (PDF)</span>
+            </button>
+          )}
         </div>
 
         {/* Intake */}
@@ -430,6 +475,39 @@ export default function ScenarioSimulation() {
           </div>
         )}
       </div>
+
+      {/* Full report — preview + one-click PDF download */}
+      {showReport && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-6"
+          onClick={() => setShowReport(false)}
+        >
+          <div className="my-4" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={downloadReport}
+                disabled={downloading}
+                className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                <span dir="auto">{downloading ? 'جارٍ التنزيل…' : 'تنزيل PDF'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReport(false)}
+                className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-[13.5px] text-white transition-colors hover:bg-white/20"
+              >
+                <X className="h-4 w-4" />
+                <span dir="auto">إغلاق</span>
+              </button>
+            </div>
+            <div className="overflow-hidden rounded-lg shadow-2xl">
+              <ScenarioReport data={reportData} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
