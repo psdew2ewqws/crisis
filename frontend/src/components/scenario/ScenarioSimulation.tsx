@@ -108,6 +108,7 @@ export default function ScenarioSimulation() {
   const [downloading, setDownloading] = useState(false)
   const [reportDoc, setReportDoc] = useState<ScenarioReportDoc | null>(null)
   const [delibTurns, setDelibTurns] = useState<DeliberationEvent[]>([])
+  const [delibTallies, setDelibTallies] = useState<DeliberationEvent[]>([])
   const [delibStatus, setDelibStatus] = useState<'idle' | 'running' | 'done'>('idle')
   const [delibMsg, setDelibMsg] = useState<string | null>(null)
   const delibAbort = useRef<AbortController | null>(null)
@@ -117,13 +118,15 @@ export default function ScenarioSimulation() {
     const controller = new AbortController()
     delibAbort.current = controller
     setDelibTurns([])
+    setDelibTallies([])
     setDelibMsg(null)
     setDelibStatus('running')
     try {
       await streamDeliberate(
-        { text, sim, detection: verdict?.detection, prediction: verdict?.prediction, confidence: verdict?.confidence, evidence, rounds: 2 },
+        { text, sim, detection: verdict?.detection, prediction: verdict?.prediction, confidence: verdict?.confidence, evidence, rounds: 3 },
         (e) => {
           if (e.stage === 'agent') setDelibTurns((t) => [...t, e])
+          else if (e.stage === 'tally') setDelibTallies((t) => [...t, e])
           else if (e.stage === 'fallback') setDelibMsg(e.message_ar ?? null)
           else if (e.stage === 'report' && e.sections) {
             setReportDoc({
@@ -144,6 +147,7 @@ export default function ScenarioSimulation() {
   const openReport = useCallback(async () => {
     setReportDoc(null)
     setDelibTurns([])
+    setDelibTallies([])
     setDelibStatus('idle')
     setDelibMsg(null)
     setShowReport(true)
@@ -588,17 +592,39 @@ export default function ScenarioSimulation() {
                   </div>
                 )}
                 <div className="space-y-2">
-                  {delibTurns.map((t, i) => (
-                    <div key={i} className="rounded-md border border-border bg-bg p-2.5">
-                      <div className="mb-1 flex items-center gap-2 text-[12px]">
-                        <span className="font-semibold text-blue" dir="auto">{t.persona}</span>
-                        <span className="rounded bg-soft px-1.5 py-0.5 text-[10.5px] text-faint" dir="auto">
-                          {t.phase === 'negotiation' ? 'تفاوض' : 'تحليل'} · جولة {t.round}
-                        </span>
+                  {delibTurns.map((t, i) => {
+                    const phaseAr = t.phase === 'vote' ? 'تصويت' : t.phase === 'negotiation' ? 'تفاوض' : 'تحليل'
+                    const tone = t.phase === 'vote' ? 'text-warn' : 'text-blue'
+                    return (
+                      <div key={i} className="rounded-md border border-border bg-bg p-2.5">
+                        <div className="mb-1 flex items-center gap-2 text-[12px]">
+                          <span className={`font-semibold ${tone}`} dir="auto">{t.persona}</span>
+                          <span className="rounded bg-soft px-1.5 py-0.5 text-[10.5px] text-faint" dir="auto">
+                            {phaseAr} · جولة {t.round}
+                          </span>
+                        </div>
+                        <p className="text-[12.5px] leading-relaxed text-muted" dir="auto">{t.text}</p>
                       </div>
-                      <p className="text-[12.5px] leading-relaxed text-muted" dir="auto">{t.text}</p>
+                    )
+                  })}
+                  {delibTallies.map((v, i) => (
+                    <div
+                      key={`tally-${i}`}
+                      className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${
+                        v.converged ? 'border-good/30 bg-good/10 text-good' : 'border-border bg-soft text-muted'
+                      }`}
+                      dir="auto"
+                    >
+                      <span className="font-medium">نتيجة التصويت · جولة {v.round}:</span>
+                      <span className="tnum">{v.ready}/{v.total} جاهز</span>
+                      <span>{v.converged ? '· توافق ✓ (التقرير جاهز)' : '· لم يكتمل التوافق — جولة أخرى'}</span>
                     </div>
                   ))}
+                  {delibStatus === 'done' && delibTurns.length > 0 && (
+                    <div className="rounded-md border border-good/30 bg-good/10 px-2.5 py-1.5 text-[12px] text-good" dir="auto">
+                      اكتملت المداولة · التقرير أدناه مبنيّ على نقاش الوكلاء.
+                    </div>
+                  )}
                 </div>
               </div>
             )}

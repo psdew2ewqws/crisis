@@ -57,7 +57,12 @@ PERSONAS = [
     {"key": "reviewer", "name": "مدقّق الإسناد",
      "role": "تحدّي كل ادّعاء: هل يُسنَد إلى الأرقام؟ أين المبالغة؟ ما الفجوة؟ تقرّر جاهزية النشر."},
 ]
-_CHALLENGERS = ["reviewer", "economist", "water"]   # the negotiation round
+_REBUTTERS = ["water", "economist", "humanitarian", "reviewer"]  # rebut each other per round
+_VOTERS = ["reviewer", "lead", "water", "economist"]             # vote-to-converge panel
+
+
+def _persona(key: str) -> Dict[str, str]:
+    return next(pp for pp in PERSONAS if pp["key"] == key)
 
 
 def _facts_block(payload: Dict[str, Any]) -> str:
@@ -157,20 +162,39 @@ def deliberate(payload: Dict[str, Any]) -> Iterator[bytes]:
         transcript.append(f"[{p['name']}] {text}")
         yield _ev("agent", persona=p["name"], role=p["key"], round=1, phase="analysis", text=text)
 
-    # ---- Round 2..N: negotiation — challengers critique + reconcile ----
-    rounds = max(1, min(int(payload.get("rounds", 2)), 3))
-    for r in range(2, rounds + 1):
-        prior = "\n".join(transcript[-8:])
-        for key in _CHALLENGERS:
-            p = next(pp for pp in PERSONAS if pp["key"] == key)
+    # ---- Negotiation rounds: explicit agent-to-agent rebuttals, then a vote-to-converge.
+    #      The panel decides when it is done (early stop on consensus, else maxRounds). ----
+    max_rounds = max(2, min(int(payload.get("rounds", 3)), 5))
+    converged = False
+    r = 1
+    while r < max_rounds and not converged:
+        r += 1
+        for key in _REBUTTERS:
+            p = _persona(key)
+            prior = "\n".join(transcript[-10:])
             text = _turn(
                 f"دورك: {p['name']} — {p['role']}",
-                f"الحقائق:\n{facts}\n\nالنقاش حتى الآن:\n{prior}\n\nناقش زملاءك صراحةً: أين تتّفق وأين تعترض ولماذا، "
-                f"وما التعديل الذي تقترحه على التقرير؟ جملتان أو ثلاث.")
+                f"الحقائق:\n{facts}\n\nالمداولة حتى الآن:\n{prior}\n\nخاطِب زميلًا بالاسم: وافقه أو اعترض عليه مع التبرير "
+                f"بالأرقام، ثم اقترح تعديلًا محدّدًا على التقرير. جملتان أو ثلاث، ابدأ مباشرة.")
             if not text:
                 continue
             transcript.append(f"[{p['name']} · ج{r}] {text}")
             yield _ev("agent", persona=p["name"], role=p["key"], round=r, phase="negotiation", text=text)
+
+        # convergence vote
+        ready = 0
+        prior = "\n".join(transcript[-12:])
+        for key in _VOTERS:
+            p = _persona(key)
+            v = _turn(
+                f"دورك: {p['name']} — {p['role']}",
+                f"بناءً على المداولة أدناه، هل التقرير جاهز للنشر لمتّخذ القرار؟ ابدأ إجابتك بكلمة واحدة فقط: "
+                f"«جاهز» أو «غير-جاهز»، ثم سبب موجز في جملة.\n\nالمداولة:\n{prior}")
+            is_ready = v.strip().startswith("جاهز")
+            ready += 1 if is_ready else 0
+            yield _ev("agent", persona=p["name"], role=p["key"], round=r, phase="vote", text=v)
+        converged = ready >= 3   # majority of the 4-member panel
+        yield _ev("tally", round=r, ready=ready, total=len(_VOTERS), converged=converged)
 
     # ---- Synthesis: the lead integrates the debate into a reasoned report ----
     debate = "\n".join(transcript)

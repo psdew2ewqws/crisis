@@ -516,15 +516,20 @@ export async function getScenarioReport(body: {
 // Live multi-agent deliberation that REASONS + negotiates the report (needs a reachable
 // model; streams agent turns then the final reasoned report). Falls back to the instant report.
 export interface DeliberationEvent {
-  stage: 'preflight' | 'agent' | 'fallback' | 'report' | 'done'
+  stage: 'preflight' | 'agent' | 'tally' | 'fallback' | 'report' | 'done'
   model_ok?: boolean
   model?: string
   persona?: string
   role?: string
   round?: number
-  phase?: 'analysis' | 'negotiation'
+  phase?: 'analysis' | 'negotiation' | 'vote'
   text?: string
   message_ar?: string
+  // tally (vote-to-converge)
+  ready?: number
+  total?: number
+  converged?: boolean
+  // report
   sections?: ReportSection[]
   key_figures?: ReportKeyFigure[]
   references?: ScenarioReportDoc['references']
