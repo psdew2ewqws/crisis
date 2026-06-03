@@ -166,6 +166,15 @@ def _distinct_by_source(cases: List[dict]) -> List[dict]:
     return out
 
 
+def _is_provisional(c: dict) -> bool:
+    """A self-authored run breadcrumb (auto-fed from a prior simulation), NOT a
+    human-validated precedent. These are recall-only: they must never fire a verdict
+    or inflate confidence, otherwise the engine launders its own guesses into
+    self-confirming 'successes' (a degrade loop)."""
+    return (str(c.get("risk_source") or "") == "run"
+            or str(c.get("source_case_id") or "").startswith("run:"))
+
+
 def _compact_series(series: list) -> List[dict]:
     """Slim the Mesa SimResult series to what the before/after charts need."""
     out = []
@@ -369,7 +378,11 @@ def _stream_debate(roster, text, cases, sim, esc, using_llm) -> Iterator[Dict[st
 # fusion — deterministic detection + prediction                               #
 # --------------------------------------------------------------------------- #
 def _fuse(text, cases, sim, esc, flags, engine) -> Dict[str, Any]:
-    distinct = _distinct_by_source(cases)
+    # Only HUMAN-VALIDATED precedents may fire a verdict or set confidence. Self-authored
+    # run breadcrumbs are excluded here (they remain visible as recalled past runs) so the
+    # engine cannot confirm its own guesses into precedents — see _is_provisional().
+    verified = [c for c in cases if not _is_provisional(c)]
+    distinct = _distinct_by_source(verified)
     successes = [c for c in distinct if (c.get("kind") or "success") == "success"]
     failures = [c for c in distinct if c.get("kind") == "failure"]
     n = len(distinct)
@@ -409,7 +422,7 @@ def _fuse(text, cases, sim, esc, flags, engine) -> Dict[str, Any]:
              "source_case_id": c.get("source_case_id")} for c in failures[:3]]
 
     # confidence — deterministic, LLM-independent
-    rels = [float(c.get("relevance") or 0.0) for c in cases]
+    rels = [float(c.get("relevance") or 0.0) for c in verified]
     mean_rel = min(1.0, sum(rels) / len(rels)) if rels else 0.0
     agreement = (max(len(successes), len(failures)) / n) if n else 0.0
     valid = (sum(float(c.get("confidence") or 0.5) for c in distinct) / n) if n else 0.0
@@ -465,7 +478,7 @@ def _fuse(text, cases, sim, esc, flags, engine) -> Dict[str, Any]:
         },
         "degradation_flags": flags,
         "degradation_flags_ar": [FLAG_AR.get(f, f) for f in flags],
-        "citations": [_citation(c) for c in cases],
+        "citations": [_citation(c) for c in verified],
     }
 
 
@@ -586,7 +599,7 @@ def _feed_provisional(text: str, domain: str, service: str, location: str,
             risk_before=float(rb) if rb is not None else 50.0,
             risk_after=float(ra) if ra is not None else 50.0,
             outcome="contained",
-            worked=True,
+            worked=None,   # UNVERIFIED: a run is not a confirmed success — only human RETAIN sets that
             source_case_id=rid,
             confidence=0.2,
             risk_source="run",
