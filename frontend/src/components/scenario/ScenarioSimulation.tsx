@@ -16,6 +16,8 @@ import {
   streamScenario,
   getScenarioOptions,
   getScenarioReport,
+  streamDeliberate,
+  type DeliberationEvent,
   type ScenarioReportDoc,
   type ScenarioEvent,
   type ScenarioCitation,
@@ -40,7 +42,7 @@ import EvidencePanel from './EvidencePanel'
 import JordanDroughtStudy from './JordanDroughtStudy'
 import ScenarioReport, { type ReportData } from './ScenarioReport'
 import { downloadElementsAsPdf } from '../../lib/pdf'
-import { FileText, Download, X } from 'lucide-react'
+import { FileText, Download, X, Users, Loader2, MessagesSquare } from 'lucide-react'
 
 // Linear stage order — drives the stepper's "current = next logical stage".
 const STAGE_ORDER: StageKey[] = ['parse', 'retrieve', 'select_agents', 'simulate', 'detect_predict']
@@ -105,9 +107,45 @@ export default function ScenarioSimulation() {
   const [showReport, setShowReport] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [reportDoc, setReportDoc] = useState<ScenarioReportDoc | null>(null)
+  const [delibTurns, setDelibTurns] = useState<DeliberationEvent[]>([])
+  const [delibStatus, setDelibStatus] = useState<'idle' | 'running' | 'done'>('idle')
+  const [delibMsg, setDelibMsg] = useState<string | null>(null)
+  const delibAbort = useRef<AbortController | null>(null)
+
+  const startDeliberation = useCallback(async () => {
+    delibAbort.current?.abort()
+    const controller = new AbortController()
+    delibAbort.current = controller
+    setDelibTurns([])
+    setDelibMsg(null)
+    setDelibStatus('running')
+    try {
+      await streamDeliberate(
+        { text, sim, detection: verdict?.detection, prediction: verdict?.prediction, confidence: verdict?.confidence, evidence, rounds: 2 },
+        (e) => {
+          if (e.stage === 'agent') setDelibTurns((t) => [...t, e])
+          else if (e.stage === 'fallback') setDelibMsg(e.message_ar ?? null)
+          else if (e.stage === 'report' && e.sections) {
+            setReportDoc({
+              ok: true, sections: e.sections, key_figures: e.key_figures, references: e.references,
+              meta: { title_ar: e.deliberated ? 'تقرير حالة — مداولة الوكلاء' : 'تقرير حالة — محاكاة أزمة',
+                scenario: text, report_no: e.deliberated ? 'مداولة حيّة بين الوكلاء' : '01 — تقرير حتميّ',
+                generated_at: '', flagship: sim?.engine === 'cascade' },
+            })
+          } else if (e.stage === 'done') setDelibStatus('done')
+        },
+        controller.signal,
+      )
+    } catch {
+      setDelibStatus('done')
+    }
+  }, [text, sim, verdict, evidence])
 
   const openReport = useCallback(async () => {
     setReportDoc(null)
+    setDelibTurns([])
+    setDelibStatus('idle')
+    setDelibMsg(null)
     setShowReport(true)
     try {
       const doc = await getScenarioReport({
@@ -503,26 +541,68 @@ export default function ScenarioSimulation() {
           className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-6"
           onClick={() => setShowReport(false)}
         >
-          <div className="my-4" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-end gap-2">
+          <div className="my-4 w-[860px] max-w-[94vw]" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={downloadReport}
-                disabled={downloading}
-                className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-60"
+                onClick={startDeliberation}
+                disabled={delibStatus === 'running'}
+                className="flex items-center gap-2 rounded-lg border border-blue/40 bg-blue/15 px-3.5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-blue/25 disabled:opacity-60"
+                title="يستدعي وكلاء يتحاورون ويحلّلون ويتفاوضون على التقرير — يتطلّب نموذجًا متاحًا"
               >
-                <Download className="h-4 w-4" />
-                <span dir="auto">{downloading ? 'جارٍ التنزيل…' : 'تنزيل PDF'}</span>
+                {delibStatus === 'running' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+                <span dir="auto">{delibStatus === 'running' ? 'الوكلاء يتداولون…' : 'مداولة الوكلاء (تحليل حيّ)'}</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setShowReport(false)}
-                className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-[13.5px] text-white transition-colors hover:bg-white/20"
-              >
-                <X className="h-4 w-4" />
-                <span dir="auto">إغلاق</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={downloadReport}
+                  disabled={downloading}
+                  className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-60"
+                >
+                  <Download className="h-4 w-4" />
+                  <span dir="auto">{downloading ? 'جارٍ التنزيل…' : 'تنزيل PDF'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowReport(false)}
+                  className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-[13.5px] text-white transition-colors hover:bg-white/20"
+                >
+                  <X className="h-4 w-4" />
+                  <span dir="auto">إغلاق</span>
+                </button>
+              </div>
             </div>
+
+            {/* Live deliberation transcript (UI only — not part of the PDF) */}
+            {(delibTurns.length > 0 || delibMsg || delibStatus !== 'idle') && (
+              <div className="mb-3 max-h-[40vh] overflow-y-auto rounded-lg border border-border bg-card p-4">
+                <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-txt">
+                  <MessagesSquare className="h-4 w-4 text-blue" />
+                  <span dir="auto">مداولة الوكلاء · تحليل وتفاوض حيّ</span>
+                  {delibStatus === 'running' && <Loader2 className="h-3.5 w-3.5 animate-spin text-blue" />}
+                </div>
+                {delibMsg && (
+                  <div className="mb-2 rounded-md border border-warn/30 bg-warn/10 p-2.5 text-[12.5px] text-warn" dir="auto">
+                    {delibMsg}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {delibTurns.map((t, i) => (
+                    <div key={i} className="rounded-md border border-border bg-bg p-2.5">
+                      <div className="mb-1 flex items-center gap-2 text-[12px]">
+                        <span className="font-semibold text-blue" dir="auto">{t.persona}</span>
+                        <span className="rounded bg-soft px-1.5 py-0.5 text-[10.5px] text-faint" dir="auto">
+                          {t.phase === 'negotiation' ? 'تفاوض' : 'تحليل'} · جولة {t.round}
+                        </span>
+                      </div>
+                      <p className="text-[12.5px] leading-relaxed text-muted" dir="auto">{t.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="overflow-hidden rounded-lg shadow-2xl">
               <ScenarioReport data={reportData} doc={reportDoc} />
             </div>

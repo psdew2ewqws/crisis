@@ -513,6 +513,51 @@ export async function getScenarioReport(body: {
   return res.json()
 }
 
+// Live multi-agent deliberation that REASONS + negotiates the report (needs a reachable
+// model; streams agent turns then the final reasoned report). Falls back to the instant report.
+export interface DeliberationEvent {
+  stage: 'preflight' | 'agent' | 'fallback' | 'report' | 'done'
+  model_ok?: boolean
+  model?: string
+  persona?: string
+  role?: string
+  round?: number
+  phase?: 'analysis' | 'negotiation'
+  text?: string
+  message_ar?: string
+  sections?: ReportSection[]
+  key_figures?: ReportKeyFigure[]
+  references?: ScenarioReportDoc['references']
+  deliberated?: boolean
+  turns?: number
+}
+export async function streamDeliberate(
+  body: { text: string; sim: ScenarioEvent | null; detection?: ScenarioDetection; prediction?: ScenarioPrediction; confidence?: ScenarioConfidence; evidence?: ScenarioEvidence[]; rounds?: number },
+  onEvent: (e: DeliberationEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/api/scenario/report/deliberate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
+  })
+  if (!res.body) return
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += dec.decode(value, { stream: true })
+    let i: number
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim()
+      buf = buf.slice(i + 1)
+      if (line) {
+        try { onEvent(JSON.parse(line) as DeliberationEvent) } catch { /* partial */ }
+      }
+    }
+  }
+}
+
 // Streams POST /api/scenario/detect, invoking onEvent per NDJSON line.
 export async function streamScenario(
   body: ScenarioInput,

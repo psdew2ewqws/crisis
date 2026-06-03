@@ -107,6 +107,13 @@ try:
 except Exception:
     pass
 
+# Runtime multi-agent report deliberation: POST /api/scenario/report/deliberate (NDJSON)
+try:
+    from . import report_swarm
+    app.include_router(report_swarm.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():
