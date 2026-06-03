@@ -9,14 +9,18 @@
 // local state and rendered the moment its data arrives. Arabic-first; AEGIS
 // dark crisis-console tokens.
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
-import { AlertTriangle, Info, Sparkles } from 'lucide-react'
+import { AlertTriangle, Info, SlidersHorizontal, ChevronDown } from 'lucide-react'
 import {
   streamScenario,
+  getScenarioOptions,
   type ScenarioEvent,
   type ScenarioCitation,
   type ScenarioAgent,
+  type ScenarioOption,
+  type ScenarioPastRun,
+  type ScenarioSolutionEval,
 } from '../../lib/voc'
 import ScenarioInput from './ScenarioInput'
 import ScenarioStepper, { type StageKey } from './ScenarioStepper'
@@ -25,6 +29,10 @@ import AgentRoster from './AgentRoster'
 import ScenarioCharts from './ScenarioCharts'
 import VerdictPanel from './VerdictPanel'
 import DebateStream, { type DebateTurn } from './DebateStream'
+import PastRuns from './PastRuns'
+import SolutionEval from './SolutionEval'
+import ResultSummary from './ResultSummary'
+import ScenarioSuggestions from './ScenarioSuggestions'
 
 // Linear stage order — drives the stepper's "current = next logical stage".
 const STAGE_ORDER: StageKey[] = ['parse', 'retrieve', 'select_agents', 'simulate', 'detect_predict']
@@ -46,8 +54,19 @@ export default function ScenarioSimulation() {
   const [text, setText] = useState('')
   const [location, setLocation] = useState('')
   const [service, setService] = useState('')
+  const [solution, setSolution] = useState('')
   const [runDebate, setRunDebate] = useState(false)
   const [running, setRunning] = useState(false)
+  const [showTech, setShowTech] = useState(false)
+
+  // dropdown options (governorates + services), fetched once
+  const [locations, setLocations] = useState<ScenarioOption[]>([])
+  const [services, setServices] = useState<ScenarioOption[]>([])
+  useEffect(() => {
+    getScenarioOptions()
+      .then((o) => { setLocations(o.locations ?? []); setServices(o.services ?? []) })
+      .catch(() => { /* dropdowns just stay empty */ })
+  }, [])
 
   // ── accumulated stage data ──────────────────────────────────────────────
   const [parse, setParse] = useState<{
@@ -69,6 +88,9 @@ export default function ScenarioSimulation() {
   const [flagsAr, setFlagsAr] = useState<string[]>([])
   const [doneEngine, setDoneEngine] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [pastRuns, setPastRuns] = useState<ScenarioPastRun[]>([])
+  const [pastTotal, setPastTotal] = useState(0)
+  const [solutionEval, setSolutionEval] = useState<ScenarioSolutionEval | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const startedRef = useRef(false)
@@ -89,6 +111,9 @@ export default function ScenarioSimulation() {
     setFlagsAr([])
     setDoneEngine(null)
     setError(null)
+    setPastRuns([])
+    setPastTotal(0)
+    setSolutionEval(null)
   }, [])
 
   const onEvent = useCallback((e: ScenarioEvent) => {
@@ -109,6 +134,10 @@ export default function ScenarioSimulation() {
         setRetrieved(true)
         setDoneStages((d) => [...d, 'retrieve'])
         setCurrent(nextStage('retrieve'))
+        break
+      case 'history':
+        setPastRuns(e.runs ?? [])
+        setPastTotal(e.total ?? 0)
         break
       case 'select_agents':
         setAgents(e.agents ?? [])
@@ -144,6 +173,19 @@ export default function ScenarioSimulation() {
         setDoneStages((d) => [...d, 'detect_predict'])
         setCurrent(nextStage('detect_predict'))
         break
+      case 'solution_eval':
+        setSolutionEval({
+          alignment: e.alignment ?? 'novel',
+          alignment_ar: e.alignment_ar ?? '',
+          alignment_score: e.alignment_score ?? 0,
+          matched_success: e.matched_success ?? null,
+          matched_anti_pattern: e.matched_anti_pattern ?? null,
+          optimized_solution: e.optimized_solution ?? '',
+          expected_results: e.expected_results ?? {},
+          confidence_band: e.confidence_band ?? 'low',
+          confidence_band_ar: e.confidence_band_ar ?? '',
+        })
+        break
       case 'done':
         setRunning(false)
         setDoneEngine(e.engine ?? null)
@@ -154,7 +196,9 @@ export default function ScenarioSimulation() {
     }
   }, [])
 
-  const onRun = useCallback(async () => {
+  const runWith = useCallback(async (t: string) => {
+    const txt = (t || '').trim()
+    if (txt.length < 6) return
     // Abort any in-flight run before starting a fresh one.
     abortRef.current?.abort()
     const controller = new AbortController()
@@ -165,12 +209,13 @@ export default function ScenarioSimulation() {
     setRunning(true)
     setCurrent('parse')
 
-    const hint = service.trim()
     const body = {
-      text,
+      text: txt,
       run_debate: runDebate,
       top_k: 6,
-      case_hint: hint ? `service:${hint}` : undefined,
+      location: location || undefined,
+      service: service || undefined,
+      solution: solution.trim() || undefined,
     }
 
     try {
@@ -183,7 +228,11 @@ export default function ScenarioSimulation() {
     } finally {
       setRunning(false)
     }
-  }, [text, service, runDebate, onEvent, resetState])
+  }, [location, service, solution, runDebate, onEvent, resetState])
+
+  const onRun = useCallback(() => runWith(text), [runWith, text])
+  // pick a suggested scenario/question → fill the box and run it
+  const onPick = useCallback((t: string) => { setText(t); runWith(t) }, [runWith])
 
   const onReset = useCallback(() => {
     abortRef.current?.abort()
@@ -223,6 +272,10 @@ export default function ScenarioSimulation() {
             onLocation={setLocation}
             service={service}
             onService={setService}
+            solution={solution}
+            onSolution={setSolution}
+            locations={locations}
+            services={services}
             runDebate={runDebate}
             onToggleDebate={setRunDebate}
             running={running}
@@ -258,13 +311,10 @@ export default function ScenarioSimulation() {
           </div>
         )}
 
-        {/* Idle hint — before the first run */}
+        {/* Idle — ready-made scenarios + questions to run with one click */}
         {!started && (
-          <div className="mt-12 flex flex-col items-center justify-center gap-2 text-faint">
-            <Sparkles className="h-6 w-6" />
-            <span className="text-[13.5px]" dir="auto">
-              صِف أزمة جديدة ثم شغّل المحاكاة لاسترجاع السوابق والكشف والتنبؤ
-            </span>
+          <div className="mt-6">
+            <ScenarioSuggestions onPick={onPick} disabled={running} />
           </div>
         )}
 
@@ -275,43 +325,69 @@ export default function ScenarioSimulation() {
           </div>
         )}
 
-        {/* Retrieved precedents */}
-        {retrieved && (
-          <div className="mt-6">
-            <PrecedentCards cases={cases} bestRelevance={bestRelevance} />
+        {/* Similar past runs — learning memory */}
+        {pastRuns.length > 0 && (
+          <div className="mt-4">
+            <PastRuns runs={pastRuns} total={pastTotal} />
           </div>
         )}
 
-        {/* Selected agents */}
-        {agents.length > 0 && (
-          <div className="mt-6">
-            <AgentRoster agents={agents} engine={selectEngine} />
-          </div>
-        )}
-
-        {/* Simulation charts */}
-        {sim && (
-          <div className="mt-6">
-            <ScenarioCharts sim={sim} />
-          </div>
-        )}
-
-        {/* Verdict — detection + prediction + confidence */}
+        {/* END RESULT — the plain conclusion, first and prominent */}
         {verdict && verdict.detection && verdict.prediction && verdict.confidence && (
+          <>
+            <div className="mt-6">
+              <ResultSummary
+                detection={verdict.detection}
+                prediction={verdict.prediction}
+                confidence={verdict.confidence}
+              />
+            </div>
+            <div className="mt-4">
+              <VerdictPanel
+                detection={verdict.detection}
+                prediction={verdict.prediction}
+                confidence={verdict.confidence}
+                flagsAr={flagsAr}
+              />
+            </div>
+          </>
+        )}
+
+        {/* Solution validator / optimizer */}
+        {solutionEval && (
           <div className="mt-6">
-            <VerdictPanel
-              detection={verdict.detection}
-              prediction={verdict.prediction}
-              confidence={verdict.confidence}
-              flagsAr={flagsAr}
-            />
+            <SolutionEval ev={solutionEval} />
           </div>
         )}
 
-        {/* Agent debate */}
-        {debateTurns.length > 0 && (
+        {/* Technical details — collapsed by default (charts, precedents, agents, debate) */}
+        {(retrieved || agents.length > 0 || sim || debateTurns.length > 0) && (
           <div className="mt-6">
-            <DebateStream turns={debateTurns} />
+            <button
+              type="button"
+              onClick={() => setShowTech((v) => !v)}
+              className="flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-[13px] font-medium text-muted transition-colors hover:bg-cardhi hover:text-txt"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              <span dir="auto">{showTech ? 'إخفاء التفاصيل التقنية' : 'عرض التفاصيل التقنية'}</span>
+              <ChevronDown className={`h-4 w-4 transition-transform ${showTech ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showTech && (
+              <div className="mt-4 space-y-6">
+                {sim && <ScenarioCharts sim={sim} />}
+                {retrieved && <PrecedentCards cases={cases} bestRelevance={bestRelevance} />}
+                {agents.length > 0 && <AgentRoster agents={agents} engine={selectEngine} />}
+                {debateTurns.length > 0 && <DebateStream turns={debateTurns} />}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Try another example */}
+        {started && !running && verdict && (
+          <div className="mt-6">
+            <ScenarioSuggestions compact onPick={onPick} disabled={running} />
           </div>
         )}
 

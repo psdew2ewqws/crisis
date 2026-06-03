@@ -349,8 +349,39 @@ export interface ScenarioConfidence {
     distinct_precedents: number
   }
 }
+export interface ScenarioPastRun {
+  id: string
+  ts?: string
+  text: string
+  domain?: string
+  service?: string | null
+  location?: string | null
+  severity_ar?: string
+  escalating?: boolean
+  likely_outcome_ar?: string
+  confidence_band_ar?: string
+  risk_before?: number
+  risk_after?: number
+}
+export interface ScenarioSolutionEval {
+  alignment: 'aligned_with_success' | 'matches_anti_pattern' | 'novel'
+  alignment_ar: string
+  alignment_score: number
+  matched_success: ScenarioCitation | null
+  matched_anti_pattern: { warning: string; source_case_id?: string } | null
+  optimized_solution: string
+  expected_results: {
+    risk_before?: number | null
+    risk_after?: number | null
+    risk_reduction?: number | null
+    escalating?: boolean
+    engine?: string
+  }
+  confidence_band: 'high' | 'medium' | 'low'
+  confidence_band_ar: string
+}
 export interface ScenarioEvent {
-  stage: 'parse' | 'retrieve' | 'select_agents' | 'simulate' | 'debate' | 'detect_predict' | 'done'
+  stage: 'parse' | 'retrieve' | 'history' | 'select_agents' | 'simulate' | 'debate' | 'detect_predict' | 'solution_eval' | 'done'
   // parse
   script?: 'ar' | 'latin'
   domain?: string
@@ -386,6 +417,19 @@ export interface ScenarioEvent {
   degradation_flags?: string[]
   degradation_flags_ar?: string[]
   citations?: ScenarioCitation[]
+  // history (recalled past runs)
+  runs?: ScenarioPastRun[]
+  total?: number
+  // solution_eval
+  alignment?: 'aligned_with_success' | 'matches_anti_pattern' | 'novel'
+  alignment_ar?: string
+  alignment_score?: number
+  matched_success?: ScenarioCitation | null
+  matched_anti_pattern?: { warning: string; source_case_id?: string } | null
+  optimized_solution?: string
+  expected_results?: ScenarioSolutionEval['expected_results']
+  confidence_band?: 'high' | 'medium' | 'low'
+  confidence_band_ar?: string
   // done
   aborted?: boolean
   reason?: string
@@ -397,7 +441,13 @@ export interface ScenarioInput {
   run_debate?: boolean
   top_k?: number
   case_hint?: string
+  location?: string
+  service?: string
+  solution?: string
 }
+export interface ScenarioOption { value: string; count: number }
+export interface ScenarioOptions { locations: ScenarioOption[]; services: ScenarioOption[] }
+export const getScenarioOptions = () => j<ScenarioOptions>('/api/scenario/options')
 
 // Streams POST /api/scenario/detect, invoking onEvent per NDJSON line.
 export async function streamScenario(
