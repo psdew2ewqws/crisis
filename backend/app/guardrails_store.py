@@ -47,7 +47,7 @@ EMBED_TIMEOUT  = int(os.environ.get("EMBED_TIMEOUT", "20"))
 # ---------------------------------------------------------------------------
 def _ensure_table() -> None:
     try:
-        from backend.app.migrations.create_guardrails_table import ensure_table
+        from .migrations.create_guardrails_table import ensure_table
         ensure_table()
     except Exception as exc:
         print(f"[guardrails_store] table bootstrap warning: {exc}")
@@ -157,7 +157,7 @@ def save(
     approved:      bool = False,
 ) -> Dict[str, Any]:
     """Insert a new guardrail, embed it, persist to DB + JSON audit log."""
-    from backend.app.db_write import get_conn
+    from .db_write import get_conn
 
     gid = uuid.uuid4().hex
     now = datetime.now(timezone.utc)
@@ -201,7 +201,7 @@ def save(
 
 def get_all() -> List[Dict[str, Any]]:
     """All guardrails, newest-first (no embedding column)."""
-    from backend.app.db_write import fetchall_write
+    from .db_write import fetchall_write
     try:
         rows = fetchall_write(
             """SELECT id, created_at, question, wrong_answer, correct_answer,
@@ -220,7 +220,7 @@ def find_relevant(question: str, n: int = 5) -> List[Dict[str, Any]]:
     Uses cosine similarity on stored embeddings when available;
     falls back to keyword-overlap scoring otherwise.
     """
-    from backend.app.db_write import fetchall_write
+    from .db_write import fetchall_write
     try:
         rows = fetchall_write(
             """SELECT id, created_at, question, wrong_answer, correct_answer,
@@ -259,7 +259,7 @@ def find_relevant(question: str, n: int = 5) -> List[Dict[str, Any]]:
 
 
 def toggle(guardrail_id: str, active: bool) -> Optional[Dict[str, Any]]:
-    from backend.app.db_write import fetchone_write, get_conn
+    from .db_write import fetchone_write, get_conn
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -294,7 +294,7 @@ def toggle(guardrail_id: str, active: bool) -> Optional[Dict[str, Any]]:
 
 
 def delete(guardrail_id: str) -> bool:
-    from backend.app.db_write import get_conn
+    from .db_write import get_conn
     deleted_db = False
     try:
         with get_conn() as conn:
@@ -318,7 +318,7 @@ def delete(guardrail_id: str) -> bool:
 
 def migrate_from_json() -> int:
     """Import guardrails.json rows into the DB. Skips duplicates. Returns count."""
-    from backend.app.db_write import get_conn, fetchall_write
+    from .db_write import get_conn, fetchall_write
 
     items = _json_read()
     if not items:

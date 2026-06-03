@@ -23,8 +23,6 @@ import {
   Bot,
   User,
   Loader2,
-  Eye,
-  EyeOff,
 } from 'lucide-react'
 
 /* ─── palette (matches AEGIS tokens) ───────────────────────────────────── */
@@ -161,7 +159,6 @@ function GuardrailBadge({ items }: { items: GuardrailApplied[] }) {
 /** Inline correction form shown below a wrong AI message */
 function CorrectionForm({
   originalQuestion,
-  wrongAnswer,
   onSave,
   onCancel,
 }: {

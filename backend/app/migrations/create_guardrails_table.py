@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_guardrails_created
 
 def ensure_table() -> None:
     """Create the table and indexes if they don't already exist (idempotent)."""
-    from backend.app.db_write import get_conn
+    from ..db_write import get_conn
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(CREATE_SQL)
