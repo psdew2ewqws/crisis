@@ -1,6 +1,17 @@
-import { ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import { ArrowUpRight, ArrowDownRight, Info } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { Kpi, Tone } from '../lib/data'
+
+// Plain-language explainer for the dashboard KPIs, matched by keyword so it holds up
+// regardless of the exact title the backend returns. Surfaced as a hover tooltip.
+function kpiHelp(title: string): string | undefined {
+  const t = title.toLowerCase()
+  if (t.includes('cluster') || t.includes('root')) return 'Active RIL problem clusters — grouped root causes, ranked by size × severity.'
+  if (t.includes('critical') || t.includes('high')) return 'Citizen signals flagged high or critical by severity.'
+  if (t.includes('service')) return 'Distinct government services with signals in the current scope.'
+  if (t.includes('signal')) return 'Total citizen reports in the voc360 database (the_data) for the current scope.'
+  return undefined
+}
 
 const badgeTone: Record<Tone, string> = {
   danger: 'text-danger border-danger/30 bg-danger/10',
@@ -32,6 +43,7 @@ const barTone: Record<Tone, string> = {
 export default function KpiCard({ kpi, index = 0 }: { kpi: Kpi; index?: number }) {
   const Arrow = kpi.trend.dir === 'up' ? ArrowUpRight : ArrowDownRight
   const tone = kpi.badge.tone
+  const help = kpiHelp(kpi.title)
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -53,7 +65,14 @@ export default function KpiCard({ kpi, index = 0 }: { kpi: Kpi; index?: number }
       <span className="pointer-events-none absolute -right-2 -top-2 h-8 w-8 rounded-full bg-txt/[0.04]" />
 
       <div className="flex items-center justify-between">
-        <span className="text-[13px] text-muted">{kpi.title}</span>
+        <span className="flex items-center gap-1.5 text-[13px] text-muted">
+          {kpi.title}
+          {help && (
+            <span title={help} aria-label={help} className="cursor-help text-faint transition-colors hover:text-muted">
+              <Info className="h-3.5 w-3.5" />
+            </span>
+          )}
+        </span>
         <span
           className={`rounded-md border px-2 py-0.5 font-mono text-[11px] font-medium tnum ${badgeTone[tone]}`}
         >

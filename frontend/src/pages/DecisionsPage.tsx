@@ -22,6 +22,7 @@
 // cleanly when the backend (or the not-yet-built POST handler) is unreachable.
 
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Gavel,
   RefreshCw,
@@ -138,6 +139,7 @@ export default function DecisionsPage({
   // so an operator can jump from a decision to the cluster it governs.
   onNavigate?: (view: string) => void
 }) {
+  const { t } = useTranslation()
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [source, setSource] = useState<'store' | 'fallback'>('fallback')
   const [loading, setLoading] = useState(true)
@@ -229,7 +231,7 @@ export default function DecisionsPage({
           <div>
             <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-tight text-txt">
               <Gavel className="h-6 w-6 text-muted" />
-              Decisions
+              {t('decisions.title')}
             </h1>
             <p className="mt-1.5 flex items-center gap-2 text-[14px] text-muted">
               <Database className="h-3.5 w-3.5" />

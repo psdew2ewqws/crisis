@@ -22,6 +22,7 @@
 // honest `engine`/`method` flags are surfaced as badges.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -424,6 +425,7 @@ function whyNodeColor(n: WhyNode): string {
 
 /* ===================================================================== page */
 export default function DeepAnalysisPage() {
+  const { t } = useTranslation()
   // ---- entity universe (grounded in ranked RIL clusters) ----
   const [causes, setCauses] = useState<RootCause[]>([])
   const [services, setServices] = useState<string[]>([])
@@ -717,7 +719,7 @@ export default function DeepAnalysisPage() {
           <div>
             <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-tight text-txt">
               <Brain className="h-7 w-7 text-blue" />
-              Deep Analysis
+              {t('deepAnalysis.title')}
             </h1>
             <p className="mt-1.5 flex items-center gap-2 text-[14px] text-muted">
               <Database className="h-3.5 w-3.5" />

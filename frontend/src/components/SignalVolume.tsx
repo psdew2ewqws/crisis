@@ -8,7 +8,9 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from 'recharts'
+import { BarChart3 } from 'lucide-react'
 import { getSignalVolume, type VolumePoint } from '../lib/voc'
+import { EmptyState, LoadingState } from './States'
 
 // Historical citizen-signal volume is daily over years, so the range buttons
 // slice a trailing window of real buckets rather than the old fake "Last 6h".
@@ -65,10 +67,12 @@ export default function SignalVolume({ service }: { service?: string | null }) {
       </div>
 
       {series === null ? (
-        <div className="grid h-[300px] place-items-center text-[13px] text-muted">Loading volume…</div>
+        <div className="grid h-[300px] place-items-center">
+          <LoadingState label="Loading volume…" />
+        </div>
       ) : data.length === 0 ? (
-        <div className="grid h-[300px] place-items-center text-[13px] text-muted">
-          No signal volume for this selection.
+        <div className="grid h-[300px] place-items-center">
+          <EmptyState icon={BarChart3} title="No signal volume for this selection." />
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={300}>

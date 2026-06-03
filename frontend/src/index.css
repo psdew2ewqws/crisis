@@ -98,3 +98,34 @@ body {
 .react-flow__controls { background: var(--color-card); border: 1px solid var(--color-border); border-radius: 8px; }
 .react-flow__controls-button { background: var(--color-card); border-bottom: 1px solid var(--color-border); fill: var(--color-muted); }
 .react-flow__controls-button:hover { background: var(--color-cardhi); }
+
+/* Keyboard-focus fallback for any interactive element that doesn't set its own
+   focus-visible ring. Elements using Tailwind's focus-visible:outline-none win by
+   specificity and show their ring instead. */
+:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Respect the OS "reduce motion" setting: neutralise long/animated transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── RTL base (Phase 1). Per-component RTL layout flips land in Phase 5; Tailwind's
+   rtl:/ltr: variants handle most cases at the component level. ── */
+[dir='rtl'] {
+  text-align: right;
+}
+/* Latin numerals/brand stay LTR even inside an RTL document */
+[dir='rtl'] .tnum,
+[dir='rtl'] .font-mono {
+  direction: ltr;
+  unicode-bidi: embed;
+}

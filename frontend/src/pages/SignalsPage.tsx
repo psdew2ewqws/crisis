@@ -7,6 +7,8 @@
 // Import-safe: it fetches /api/signals directly and degrades to a graceful
 // empty state. AEGIS dark-console tokens throughout.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { humanizeSentiment, humanizeSource, humanizeSeverity, humanizeTimestamp } from '../lib/format'
 import {
   Search,
   ChevronLeft,
@@ -51,32 +53,7 @@ interface Query {
 const PAGE_SIZE = 25
 const ALL = '__all__'
 
-// ── severity → AEGIS tone (real voc360 buckets: low/medium/high/critical) ──
-const SEV_DOT: Record<string, string> = {
-  critical: 'bg-danger',
-  high: 'bg-danger',
-  medium: 'bg-warn',
-  low: 'bg-good',
-}
-const SEV_TEXT: Record<string, string> = {
-  critical: 'text-danger',
-  high: 'text-danger',
-  medium: 'text-warn',
-  low: 'text-good',
-}
-function sevKey(s?: string | null): string {
-  return (s ?? '').trim().toLowerCase()
-}
-
-const SENT_TONE: Record<string, string> = {
-  negative: 'text-danger',
-  high_severity_complaint: 'text-danger',
-  positive: 'text-good',
-}
-function sentTone(s?: string | null): string {
-  return SENT_TONE[sevKey(s)] ?? 'text-muted'
-}
-
+// Severity / sentiment / source / timestamp labels are humanized via lib/format.ts.
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low']
 
 // ── resilient data loader ──────────────────────────────────────────────────
@@ -140,21 +117,9 @@ function isArabic(s: string): boolean {
   return /[؀-ۿ]/.test(s)
 }
 
-function timeAgo(iso?: string | null): string {
-  if (!iso) return '—'
-  const t = new Date(iso).getTime()
-  if (Number.isNaN(t)) return String(iso)
-  const d = Date.now() - t
-  const m = Math.round(d / 60000)
-  if (m < 1) return 'now'
-  if (m < 60) return `${m}m`
-  const h = Math.round(m / 60)
-  if (h < 24) return `${h}h`
-  return `${Math.round(h / 24)}d`
-}
-
 // ── page ───────────────────────────────────────────────────────────────────
 export default function SignalsPage() {
+  const { t } = useTranslation()
   const [q, setQ] = useState<Query>({ service: ALL, severity: ALL, source: ALL, search: '', page: 0 })
   const [searchInput, setSearchInput] = useState('')
   const [data, setData] = useState<SignalsResponse>({ rows: [], total: 0 })
@@ -217,11 +182,11 @@ export default function SignalsPage() {
           <div>
             <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-tight text-txt">
               <Radio className="h-6 w-6 text-blue" />
-              Signals
+              {t('nav.signals')}
             </h1>
             <p className="mt-1.5 text-[14px] text-muted">
-              Voice-of-Customer signal layer · <span className="font-mono text-faint">the_data</span> ·{' '}
-              {loading && !data.rows.length ? '…' : total.toLocaleString()} records
+              {t('signals.subtitle')} · <span className="font-mono text-faint" dir="ltr">the_data</span> ·{' '}
+              {loading && !data.rows.length ? '…' : t('signals.records', { n: total.toLocaleString() })}
             </p>
           </div>
           <button
@@ -229,39 +194,39 @@ export default function SignalsPage() {
             className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[13px] text-muted transition-colors hover:bg-soft hover:text-txt"
           >
             <RotateCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            {t('signals.refresh')}
           </button>
         </div>
 
         {/* filter bar */}
         <div className="mt-6 flex flex-wrap items-center gap-2.5">
           <div className="relative flex-1 min-w-[220px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+            <Search className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-y-1/2 text-faint ltr:left-3 rtl:right-3" />
             <input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search signal text…"
+              placeholder={t('signals.search')}
               dir="auto"
-              className="w-full rounded-lg border border-border bg-bg py-2 pl-9 pr-3 text-[13px] text-txt outline-none transition-colors placeholder:text-faint hover:bg-soft focus:border-blue"
+              className="w-full rounded-lg border border-border bg-bg py-2 text-[13px] text-txt outline-none transition-colors placeholder:text-faint hover:bg-soft focus:border-blue ltr:pl-9 ltr:pr-3 rtl:pr-9 rtl:pl-3"
             />
           </div>
           <Select
             value={q.service}
             onChange={(v) => setFilter({ service: v })}
             options={serviceOptions}
-            allLabel="All services"
+            allLabel={t('signals.allServices')}
           />
           <Select
             value={q.severity}
             onChange={(v) => setFilter({ severity: v })}
-            options={SEVERITY_OPTIONS.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))}
-            allLabel="All severity"
+            options={SEVERITY_OPTIONS.map((s) => ({ value: s, label: humanizeSeverity(s, t).label }))}
+            allLabel={t('signals.allSeverity')}
           />
           <Select
             value={q.source}
             onChange={(v) => setFilter({ source: v })}
             options={sourceOptions}
-            allLabel="All sources"
+            allLabel={t('signals.allSources')}
           />
         </div>
 
@@ -270,12 +235,12 @@ export default function SignalsPage() {
           <table className="w-full text-left">
             <thead>
               <tr className="text-[11px] font-medium tracking-[0.08em] text-faint">
-                <th className="px-5 py-3 font-medium">SEVERITY</th>
-                <th className="py-3 font-medium">SIGNAL</th>
-                <th className="py-3 font-medium">SERVICE</th>
-                <th className="py-3 font-medium">SOURCE</th>
-                <th className="py-3 font-medium">SENTIMENT</th>
-                <th className="px-5 py-3 text-right font-medium">OBSERVED</th>
+                <th className="px-5 py-3 font-medium">{t('signals.col.severity')}</th>
+                <th className="py-3 font-medium">{t('signals.col.signal')}</th>
+                <th className="py-3 font-medium">{t('signals.col.service')}</th>
+                <th className="py-3 font-medium">{t('signals.col.source')}</th>
+                <th className="py-3 font-medium">{t('signals.col.sentiment')}</th>
+                <th className="px-5 py-3 font-medium ltr:text-right rtl:text-left">{t('signals.col.observed')}</th>
               </tr>
             </thead>
             <tbody>
@@ -301,7 +266,7 @@ export default function SignalsPage() {
                 <tr>
                   <td colSpan={6} className="px-5 py-12 text-center text-muted">
                     <Loader2 className="mx-auto h-5 w-5 animate-spin text-blue" />
-                    <div className="mt-2 text-[13px]">Loading voc360 signals…</div>
+                    <div className="mt-2 text-[13px]">{t('signals.loading')}</div>
                   </td>
                 </tr>
               )}
@@ -310,42 +275,46 @@ export default function SignalsPage() {
                 <tr>
                   <td colSpan={6} className="px-5 py-12 text-center text-muted">
                     <Radio className="mx-auto h-6 w-6 text-faint" />
-                    <div className="mt-2 text-[14px] text-txt">No signals match these filters</div>
-                    <div className="mt-1 text-[13px] text-faint">Try clearing a filter or the search term.</div>
+                    <div className="mt-2 text-[14px] text-txt">{t('signals.empty')}</div>
+                    <div className="mt-1 text-[13px] text-faint">{t('signals.emptyHint')}</div>
                   </td>
                 </tr>
               )}
 
               {!err &&
                 data.rows.map((s) => {
-                  const sev = sevKey(s.severity)
                   const body = (s.text_clean || s.text || '').trim()
                   const ar = isArabic(body)
+                  const sev = humanizeSeverity(s.severity, t)
+                  const sent = humanizeSentiment(s.sentiment_label, t)
+                  const src = humanizeSource(s.source_type, t)
+                  const SrcIcon = src.Icon
                   return (
                     <tr
                       key={String(s.record_id)}
                       className="border-t border-border/70 transition-colors hover:bg-soft/50"
                     >
-                      <td className="px-5 py-3.5 align-top">
-                        <span className={`inline-flex items-center gap-1.5 text-[13px] ${SEV_TEXT[sev] ?? 'text-muted'}`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${SEV_DOT[sev] ?? 'bg-faint'}`} />
-                          {s.severity ? sev[0].toUpperCase() + sev.slice(1) : '—'}
+                      <td className="px-5 py-4 align-top">
+                        <span className={`inline-flex items-center gap-1.5 text-[13px] ${sev.color}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${sev.dot}`} />
+                          {sev.label}
                         </span>
                       </td>
-                      <td className="max-w-[480px] py-3.5 align-top">
+                      <td className="max-w-[480px] py-4 align-top">
                         <div
                           dir={ar ? 'rtl' : 'ltr'}
-                          className={`line-clamp-2 text-[13.5px] text-txt ${ar ? 'text-right font-sans' : ''}`}
+                          className={`line-clamp-2 text-[13.5px] leading-relaxed text-txt ${ar ? 'text-right font-sans' : ''}`}
                         >
                           {body || <span className="text-faint">—</span>}
                         </div>
-                        <span className="mt-0.5 block font-mono text-[11px] text-faint">
-                          #{String(s.record_id)}
-                          {s.source_platform ? ` · ${s.source_platform}` : ''}
-                          {typeof s.rating === 'number' ? ` · ★${s.rating}` : ''}
-                        </span>
+                        {(s.source_platform || typeof s.rating === 'number') && (
+                          <span className="mt-1 block font-mono text-[11px] text-faint">
+                            {s.source_platform ?? ''}
+                            {typeof s.rating === 'number' ? `${s.source_platform ? ' · ' : ''}★${s.rating}` : ''}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-3.5 align-top">
+                      <td className="py-4 align-top">
                         <span dir="auto" className="text-[13px] text-txt">
                           {s.service_id ?? <span className="text-faint">—</span>}
                         </span>
@@ -355,18 +324,20 @@ export default function SignalsPage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 align-top">
-                        <span dir="auto" className="font-mono text-[12px] text-muted">
-                          {s.source_type ?? '—'}
+                      <td className="py-4 align-top">
+                        <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted">
+                          <SrcIcon className="h-3.5 w-3.5 text-faint" />
+                          {src.label}
                         </span>
                       </td>
-                      <td className="py-3.5 align-top">
-                        <span className={`text-[12.5px] ${sentTone(s.sentiment_label)}`}>
-                          {s.sentiment_label ? s.sentiment_label.replace(/_/g, ' ') : '—'}
+                      <td className="py-4 align-top">
+                        <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[12px] ${sent.color}`} style={{ borderColor: 'currentColor' }}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${sent.dot}`} />
+                          {sent.label}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-right align-top">
-                        <span className="font-mono text-[13px] tnum text-muted">{timeAgo(s.observed_at)}</span>
+                      <td className="px-5 py-4 text-right align-top">
+                        <span className="font-mono text-[13px] tnum text-muted">{humanizeTimestamp(s.observed_at, t)}</span>
                       </td>
                     </tr>
                   )
@@ -376,12 +347,12 @@ export default function SignalsPage() {
 
           {/* footer / pagination */}
           <div className="flex items-center justify-between border-t border-border px-5 py-3">
-            <span className="text-[12.5px] text-muted">
-              {total === 0 ? 'No results' : `${from.toLocaleString()}–${to.toLocaleString()} of ${total.toLocaleString()}`}
+            <span className="text-[12.5px] text-muted" dir="ltr">
+              {total === 0 ? t('signals.noResults') : `${from.toLocaleString()}–${to.toLocaleString()} / ${total.toLocaleString()}`}
             </span>
             <div className="flex items-center gap-2">
               <span className="text-[12.5px] text-faint">
-                Page {q.page + 1} / {pageCount}
+                {t('signals.page', { page: q.page + 1, total: pageCount })}
               </span>
               <button
                 disabled={q.page === 0 || loading}

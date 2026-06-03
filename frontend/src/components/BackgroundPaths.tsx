@@ -2,10 +2,11 @@
 // community component to the project's stack: motion/react (not framer-motion)
 // and the AEGIS token palette (no shadcn dependency). Used by the onboarding
 // hero. The paths evoke the "butterfly-effect" cascade the console models.
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 
 function FloatingPaths({ position }: { position: number }) {
+  const reduce = useReducedMotion()
   const paths = Array.from({ length: 36 }, (_, i) => ({
     id: i,
     d: `M-${380 - i * 5 * position} -${189 + i * 6}C-${
@@ -30,16 +31,34 @@ function FloatingPaths({ position }: { position: number }) {
             strokeWidth={path.width}
             strokeOpacity={0.08 + path.id * 0.025}
             initial={{ pathLength: 0.3, opacity: 0.5 }}
-            animate={{ pathLength: 1, opacity: [0.25, 0.6, 0.25], pathOffset: [0, 1, 0] }}
-            transition={{
-              // index-derived (not Math.random, which is unavailable / non-deterministic)
-              duration: 20 + (path.id % 10),
-              repeat: Number.POSITIVE_INFINITY,
-              ease: 'linear',
-            }}
+            animate={
+              reduce
+                ? { pathLength: 1, opacity: 0.4 }
+                : { pathLength: 1, opacity: [0.25, 0.6, 0.25], pathOffset: [0, 1, 0] }
+            }
+            transition={
+              reduce
+                ? { duration: 0 }
+                : {
+                    // index-derived (not Math.random, which is unavailable / non-deterministic)
+                    duration: 20 + (path.id % 10),
+                    repeat: Number.POSITIVE_INFINITY,
+                    ease: 'linear',
+                  }
+            }
           />
         ))}
       </svg>
+    </div>
+  )
+}
+
+// Just the animated paths layer — reusable as a backdrop behind arbitrary content.
+export function PathsBackdrop() {
+  return (
+    <div className="pointer-events-none absolute inset-0">
+      <FloatingPaths position={1} />
+      <FloatingPaths position={-1} />
     </div>
   )
 }
@@ -60,10 +79,7 @@ export function BackgroundPaths({
   const words = title.split(' ')
   return (
     <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-bg">
-      <div className="absolute inset-0">
-        <FloatingPaths position={1} />
-        <FloatingPaths position={-1} />
-      </div>
+      <PathsBackdrop />
 
       <div className="container relative z-10 mx-auto px-4 text-center md:px-6">
         <motion.div

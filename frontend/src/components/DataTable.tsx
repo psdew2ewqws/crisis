@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
-import { SlidersHorizontal, Zap, Loader2 } from 'lucide-react'
+import { SlidersHorizontal, Zap } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { EmptyState, LoadingState } from './States'
+import { humanizeSentiment, humanizeSource, humanizeTimestamp } from '../lib/format'
 import {
   getSignals,
   getRootCause,
@@ -17,13 +20,6 @@ const TABS: Tab[] = ['Signals', 'Incidents', 'Solutions']
 const isAr = (s: string | null | undefined) => !!s && /[؀-ۿ]/.test(s)
 const clip = (s: string | null | undefined, n = 90) =>
   !s ? '—' : s.length > n ? s.slice(0, n) + '…' : s
-const fmtTime = (iso: string | null) => {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
-  const days = Math.round((Date.now() - d.getTime()) / 86_400_000)
-  return days <= 0 ? 'today' : days === 1 ? '1d' : `${days}d`
-}
 
 export default function DataTable({
   onRun,
@@ -34,6 +30,7 @@ export default function DataTable({
   service?: string | null
   query?: string
 }) {
+  const { t: tr } = useTranslation()
   const [tab, setTab] = useState<Tab>('Signals')
   const [signals, setSignals] = useState<Signal[] | null>(null)
   const [incidents, setIncidents] = useState<RootCause[] | null>(null)
@@ -91,7 +88,7 @@ export default function DataTable({
                 tab === t ? 'font-medium text-txt' : 'text-muted hover:text-txt'
               }`}
             >
-              {t}
+              {tr(`dashboard.tab.${t.toLowerCase()}`)}
               {counts[t] !== null && (
                 <span className={`text-[12px] ${tab === t ? 'text-muted' : 'text-faint'}`}>
                   {counts[t]}
@@ -103,18 +100,18 @@ export default function DataTable({
         <div className="flex items-center gap-2">
           <button
             disabled
-            title="Column customization — coming soon"
+            title={tr('dashboard.customize')}
             className="flex cursor-not-allowed items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-[13px] text-faint opacity-60"
           >
             <SlidersHorizontal className="h-4 w-4" />
-            Customize
+            {tr('dashboard.customize')}
           </button>
           <button
             onClick={onRun}
             className="flex items-center gap-1.5 rounded-lg bg-blue px-3 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#2f76e8]"
           >
             <Zap className="h-4 w-4 fill-white" />
-            Run Analysis
+            {tr('topbar.runAnalysis')}
           </button>
         </div>
       </div>
@@ -127,14 +124,10 @@ export default function DataTable({
 }
 
 function Loading() {
-  return (
-    <div className="flex items-center justify-center gap-2 py-10 text-[13px] text-muted">
-      <Loader2 className="h-4 w-4 animate-spin text-blue" /> Loading…
-    </div>
-  )
+  return <LoadingState />
 }
 function Empty({ msg }: { msg: string }) {
-  return <div className="py-10 text-center text-[13px] text-muted">{msg}</div>
+  return <EmptyState title={msg} />
 }
 
 const SeverityCell = ({ sev }: { sev: number | string | null }) => {
@@ -158,33 +151,41 @@ const SeverityCell = ({ sev }: { sev: number | string | null }) => {
 }
 
 function SignalsTable({ rows }: { rows: Signal[] | null }) {
+  const { t } = useTranslation()
   if (rows === null) return <Loading />
   if (rows.length === 0) return <Empty msg="No signals for this selection." />
   return (
     <table className="w-full text-left">
       <thead>
         <tr className="text-[11px] font-medium tracking-[0.08em] text-faint">
-          <th className="px-5 py-3 font-medium">SERVICE</th>
-          <th className="py-3 font-medium">OBSERVATION</th>
-          <th className="py-3 font-medium">SEVERITY</th>
-          <th className="py-3 font-medium">SENTIMENT</th>
-          <th className="px-5 py-3 text-right font-medium">OBSERVED</th>
+          <th className="px-5 py-3 font-medium">{t('signals.col.service')}</th>
+          <th className="py-3 font-medium">{t('signals.col.signal')}</th>
+          <th className="py-3 font-medium">{t('signals.col.severity')}</th>
+          <th className="py-3 font-medium">{t('signals.col.sentiment')}</th>
+          <th className="px-5 py-3 font-medium ltr:text-right rtl:text-left">{t('signals.col.observed')}</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((s) => {
           const obs = s.text_clean || s.text
+          const sent = humanizeSentiment(s.sentiment_label, t)
+          const src = humanizeSource(s.source_type, t)
           return (
             <tr key={s.record_id} className="border-t border-border/70 transition-colors hover:bg-soft/50">
               <td className="px-5 py-3.5 font-mono text-[13px] text-txt">{s.service_id ?? '—'}</td>
               <td className="max-w-[1px] py-3.5 text-[13.5px] text-txt" dir={isAr(obs) ? 'rtl' : 'ltr'}>
                 <span className="line-clamp-1">{clip(obs)}</span>
-                <span className="ml-2 font-mono text-[11px] text-faint">{s.source_type}</span>
+                <span className="ml-2 text-[11px] text-faint">{src.label}</span>
               </td>
               <td className="py-3.5"><SeverityCell sev={s.severity} /></td>
-              <td className="py-3.5 text-[13px] text-muted">{s.sentiment_label ?? '—'}</td>
+              <td className="py-3.5">
+                <span className={`inline-flex items-center gap-1.5 text-[13px] ${sent.color}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${sent.dot}`} />
+                  {sent.label}
+                </span>
+              </td>
               <td className="px-5 py-3.5 text-right font-mono text-[13px] tnum text-muted">
-                {fmtTime(s.observed_at)}
+                {humanizeTimestamp(s.observed_at, t)}
               </td>
             </tr>
           )

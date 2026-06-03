@@ -14,6 +14,7 @@
 // while T3 (labels map + solution engine) lands.
 
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Network,
   RefreshCw,
@@ -104,6 +105,7 @@ export default function RootCausePage({
   // opens the graph view focused on the selected cluster.
   onNavigate?: (view: string, clusterId?: string) => void
 }) {
+  const { t } = useTranslation()
   const [causes, setCauses] = useState<RootCause[]>([])
   const [recommendation, setRecommendation] = useState<string | null>(null)
   const [labels, setLabels] = useState<LabelsMap>({})
@@ -156,7 +158,7 @@ export default function RootCausePage({
         {/* header */}
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-[28px] font-semibold tracking-tight text-txt">Root Cause Analysis</h1>
+            <h1 className="text-[28px] font-semibold tracking-tight text-txt">{t('rootCause.title')}</h1>
             <p className="mt-1.5 flex items-center gap-2 text-[14px] text-muted">
               <Database className="h-3.5 w-3.5" />
               Ranked RIL problem clusters from voc360

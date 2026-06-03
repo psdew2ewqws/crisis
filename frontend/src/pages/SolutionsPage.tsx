@@ -16,6 +16,7 @@
 // functions off a namespace import at runtime.
 
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   FlaskConical,
   ShieldCheck,
@@ -390,6 +391,7 @@ function SolutionCard({
 /* ------------------------------------------------------------------- page -- */
 
 export default function SolutionsPage() {
+  const { t } = useTranslation()
   const [sols, setSols] = useState<ValidSolution[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [derived, setDerived] = useState(false)
@@ -546,7 +548,7 @@ export default function SolutionsPage() {
           <div>
             <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-tight text-txt">
               <FlaskConical className="h-6 w-6 text-blue" />
-              Solutions
+              {t('solutions.title')}
             </h1>
             <p className="mt-1.5 flex items-center gap-2 text-[14px] text-muted">
               Valid-solution engine · cause → countermeasure → expected impact

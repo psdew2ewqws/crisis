@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Zap, Loader2, X, Check } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Zap, Loader2, X, Check, LayoutGrid } from 'lucide-react'
 import Sidebar, { type CaseRow } from './components/Sidebar'
 import Topbar from './components/Topbar'
 import KpiCard from './components/KpiCard'
@@ -10,6 +11,10 @@ import Onboarding from './components/Onboarding'
 import SettingsDrawer from './components/SettingsDrawer'
 import HelpDrawer from './components/HelpDrawer'
 import ErrorBoundary from './components/ErrorBoundary'
+import MissionBriefing from './components/MissionBriefing'
+import Tour from './components/Tour'
+import { useLangStore } from './stores/langStore'
+import { useAuthStore } from './stores/authStore'
 import { kpis as fallbackKpis, type Kpi, type Tone } from './lib/data'
 import { getKpis, getCases, runFlow, type CaseServiceRow, type FlowEvent } from './lib/voc'
 
@@ -20,6 +25,7 @@ const SimulationPage = lazy(() => import('./pages/SimulationPage'))
 const DecisionsPage = lazy(() => import('./pages/DecisionsPage'))
 const DeepAnalysisPage = lazy(() => import('./pages/DeepAnalysisPage'))
 const ExpertChatPage = lazy(() => import('./pages/ExpertChatPage'))
+const AuthPage = lazy(() => import('./pages/AuthPage'))
 
 function Loading() {
   return (
@@ -174,11 +180,16 @@ function DashboardView({
   service,
   onRun,
   query,
+  onTour,
+  onNavigate,
 }: {
   service: string | null
   onRun: () => void
   query: string
+  onTour: () => void
+  onNavigate: (view: string) => void
 }) {
+  const { t } = useTranslation()
   const [kpis, setKpis] = useState<Kpi[] | null>(null)
 
   useEffect(() => {
@@ -195,25 +206,22 @@ function DashboardView({
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-[1340px] px-8 py-7">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-[28px] font-semibold tracking-tight text-txt">Dashboard</h1>
-            <p className="mt-1.5 text-[14px] text-muted">
-              Live voc360 ·{' '}
-              <span className="font-medium text-txt" dir={/[؀-ۿ]/.test(service ?? '') ? 'rtl' : 'ltr'}>
-                {service ?? 'All services'}
-              </span>
-            </p>
-          </div>
-          <button
-            onClick={onRun}
-            className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8]"
-          >
-            <Zap className="h-4 w-4 fill-white" />
-            Run Analysis
-          </button>
+        <div>
+          <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-tight text-txt">
+            <LayoutGrid className="h-6 w-6 text-blue" />
+            {t('nav.dashboard')}
+          </h1>
+          <p className="mt-1.5 text-[14px] text-muted">
+            {t('dashboard.live')} ·{' '}
+            <span className="font-medium text-txt" dir={/[؀-ۿ]/.test(service ?? '') ? 'rtl' : 'ltr'}>
+              {service ?? t('dashboard.allServices')}
+            </span>
+          </p>
         </div>
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-6">
+          <MissionBriefing onNavigate={onNavigate} onRun={onRun} onTour={onTour} />
+        </div>
+        <div data-tour="kpis" className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {cards.map((k, i) => (
             <KpiCard key={k.title} kpi={k} index={i} />
           ))}
@@ -226,16 +234,81 @@ function DashboardView({
 }
 
 export default function App() {
-  const [onboarded, setOnboarded] = useState(
-    () => typeof localStorage !== 'undefined' && localStorage.getItem('aegis-onboarded') !== null,
+  // First login lands on the hero; returning (onboarded) users land on the Dashboard.
+  const [view, setView] = useState(() =>
+    typeof localStorage !== 'undefined' && localStorage.getItem('aegis-onboarded') !== null
+      ? 'Dashboard'
+      : 'hero',
   )
-  const [view, setView] = useState('Dashboard')
   const [services, setServices] = useState<CaseServiceRow[]>([])
   const [activeService, setActiveService] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [run, setRun] = useState<RunState>(idleRun)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => typeof localStorage !== 'undefined' && localStorage.getItem('aegis-sidebar-collapsed') === '1',
+  )
+
+  const toggleSidebar = () =>
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      localStorage.setItem('aegis-sidebar-collapsed', next ? '1' : '0')
+      return next
+    })
+
+  // First-run journey: the hero is a full-screen view shown on first login (and any
+  // time via "Mission HQ"); the Mission Briefing + tour live inside the console.
+  const [tourOpen, setTourOpen] = useState(false)
+
+  const enterConsole = () => {
+    localStorage.setItem('aegis-onboarded', '1')
+    setView('Dashboard')
+  }
+  const goToHero = () => setView('hero')
+  const startTour = () => {
+    setView('Dashboard') // the tour anchors live on the console chrome
+    setTourOpen(true)
+  }
+  const heroTakeTour = () => {
+    enterConsole()
+    setTourOpen(true)
+  }
+
+  // Global keyboard shortcuts (advertised in the Help drawer). Ignored while typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (e.key === '?') {
+        e.preventDefault()
+        setHelpOpen((v) => !v)
+      } else if (e.key === '[') {
+        e.preventDefault()
+        toggleSidebar()
+      } else if (e.key === 'Escape') {
+        if (tourOpen) setTourOpen(false)
+        else if (helpOpen) setHelpOpen(false)
+        else if (settingsOpen) setSettingsOpen(false)
+        else if (run.recommendation || run.error) setRun(idleRun)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [tourOpen, helpOpen, settingsOpen, run])
+
+  // Auth gate (client-side only — see authStore).
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const authUser = useAuthStore((s) => s.user)
+  const logout = useAuthStore((s) => s.logout)
+
+  // Apply the persisted language's dir/lang to <html> on mount (langStore also does
+  // this at import, but this guards StrictMode remounts and any DOM resets).
+  const lang = useLangStore((s) => s.lang)
+  useEffect(() => {
+    document.documentElement.setAttribute('lang', lang)
+    document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr')
+  }, [lang])
 
   useEffect(() => {
     let alive = true
@@ -292,15 +365,18 @@ export default function App() {
     runAnalysis()
   }
 
-  if (!onboarded) {
+  // Auth gate wraps everything — unauthenticated users only see the login/signup page.
+  if (!isAuthenticated) {
     return (
-      <Onboarding
-        onDone={() => {
-          localStorage.setItem('aegis-onboarded', '1')
-          setOnboarded(true)
-        }}
-      />
+      <Suspense fallback={<Loading />}>
+        <AuthPage />
+      </Suspense>
     )
+  }
+
+  // Hero is a full-screen view (no shell) — first login, or any time via Mission HQ.
+  if (view === 'hero') {
+    return <Onboarding onEnter={enterConsole} onTour={heroTakeTour} />
   }
 
   let content: ReactNode
@@ -313,7 +389,16 @@ export default function App() {
     case 'Decisions': content = <DecisionsPage />; break
     case 'Deep Analysis': content = <DeepAnalysisPage />; break
     case 'Expert Chat': content = <ExpertChatPage />; break
-    default: content = <DashboardView service={activeService} onRun={runAnalysis} query={search} />
+    default:
+      content = (
+        <DashboardView
+          service={activeService}
+          onRun={runAnalysis}
+          query={search}
+          onTour={startTour}
+          onNavigate={setView}
+        />
+      )
   }
 
   return (
@@ -327,6 +412,10 @@ export default function App() {
         onSelectCase={selectCase}
         onSettings={() => setSettingsOpen(true)}
         onHelp={() => setHelpOpen(true)}
+        collapsed={sidebarCollapsed}
+        user={authUser}
+        onLogout={logout}
+        onMissionHQ={goToHero}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <Topbar
@@ -334,6 +423,7 @@ export default function App() {
           query={search}
           onSearch={setSearch}
           onBell={() => setHelpOpen(true)}
+          onToggleSidebar={toggleSidebar}
         />
         <div className="flex min-h-0 flex-1 flex-col">
           <ErrorBoundary key={view} onReset={() => setView('Dashboard')}>
@@ -342,8 +432,21 @@ export default function App() {
         </div>
       </main>
 
-      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <SettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        leftOffset={sidebarCollapsed ? 68 : 248}
+      />
+      <HelpDrawer
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        leftOffset={sidebarCollapsed ? 68 : 248}
+        onReplayTour={() => {
+          setHelpOpen(false)
+          startTour()
+        }}
+      />
+      <Tour open={tourOpen} onClose={() => setTourOpen(false)} />
       <RunProgress run={run} onClose={() => setRun(idleRun)} />
     </div>
   )
