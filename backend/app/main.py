@@ -100,6 +100,13 @@ try:
 except Exception:
     pass
 
+# Legal research agent (open scholarly + data APIs): POST /api/research/run (NDJSON)
+try:
+    from . import research_agent
+    app.include_router(research_agent.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():
