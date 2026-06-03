@@ -1,66 +1,31 @@
 import { useEffect, useState } from 'react'
 import { SlidersHorizontal, Zap, Loader2 } from 'lucide-react'
 import {
-  getSignals,
   getRootCause,
   getSolutions,
   severityTone,
   toneColor,
-  type Signal,
   type Solution,
 } from '../lib/voc'
 import type { RootCause } from '../lib/voc'
 
-type Tab = 'Signals' | 'Incidents' | 'Solutions'
-const TABS: Tab[] = ['Signals', 'Incidents', 'Solutions']
+type Tab = 'Incidents' | 'Solutions'
+const TABS: Tab[] = ['Incidents', 'Solutions']
 
 const isAr = (s: string | null | undefined) => !!s && /[؀-ۿ]/.test(s)
 const clip = (s: string | null | undefined, n = 90) =>
   !s ? '—' : s.length > n ? s.slice(0, n) + '…' : s
-const fmtTime = (iso: string | null) => {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
-  const days = Math.round((Date.now() - d.getTime()) / 86_400_000)
-  return days <= 0 ? 'today' : days === 1 ? '1d' : `${days}d`
-}
 
 export default function DataTable({
   onRun,
-  service,
-  query = '',
 }: {
   onRun: () => void
   service?: string | null
   query?: string
 }) {
-  const [tab, setTab] = useState<Tab>('Signals')
-  const [signals, setSignals] = useState<Signal[] | null>(null)
+  const [tab, setTab] = useState<Tab>('Incidents')
   const [incidents, setIncidents] = useState<RootCause[] | null>(null)
   const [solutions, setSolutions] = useState<Solution[] | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    setSignals(null)
-    getSignals({ service_id: service ?? undefined, limit: 8 }).then((r) => {
-      if (alive) setSignals(r.signals ?? [])
-    })
-    return () => {
-      alive = false
-    }
-  }, [service])
-
-  // Topbar search filters the fetched signal rows client-side (text / service /
-  // source / sentiment) — the real service-filtered fetch above stays intact.
-  const q = query.trim().toLowerCase()
-  const shownSignals =
-    !q || signals === null
-      ? signals
-      : signals.filter((s) =>
-          [s.text_clean, s.text, s.service_id, s.source_type, s.sentiment_label]
-            .filter(Boolean)
-            .some((f) => String(f).toLowerCase().includes(q)),
-        )
 
   useEffect(() => {
     let alive = true
@@ -68,13 +33,10 @@ export default function DataTable({
       getRootCause().then((r) => alive && setIncidents(r.root_causes ?? []))
     if (tab === 'Solutions' && solutions === null)
       getSolutions(8).then((r) => alive && setSolutions(r.solutions ?? []))
-    return () => {
-      alive = false
-    }
+    return () => { alive = false }
   }, [tab, incidents, solutions])
 
   const counts: Record<Tab, number | null> = {
-    Signals: shownSignals?.length ?? null,
     Incidents: incidents?.length ?? null,
     Solutions: solutions?.length ?? null,
   }
@@ -119,7 +81,6 @@ export default function DataTable({
         </div>
       </div>
 
-      {tab === 'Signals' && <SignalsTable rows={shownSignals} />}
       {tab === 'Incidents' && <IncidentsTable rows={incidents} />}
       {tab === 'Solutions' && <SolutionsTable rows={solutions} />}
     </div>
@@ -138,7 +99,6 @@ function Empty({ msg }: { msg: string }) {
 }
 
 const SeverityCell = ({ sev }: { sev: number | string | null }) => {
-  // numeric (0..1 avg) or categorical (low/medium/high/critical)
   let label: string
   let color: string
   if (typeof sev === 'number') {
@@ -154,43 +114,6 @@ const SeverityCell = ({ sev }: { sev: number | string | null }) => {
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
       {label}
     </span>
-  )
-}
-
-function SignalsTable({ rows }: { rows: Signal[] | null }) {
-  if (rows === null) return <Loading />
-  if (rows.length === 0) return <Empty msg="No signals for this selection." />
-  return (
-    <table className="w-full text-left">
-      <thead>
-        <tr className="text-[11px] font-medium tracking-[0.08em] text-faint">
-          <th className="px-5 py-3 font-medium">SERVICE</th>
-          <th className="py-3 font-medium">OBSERVATION</th>
-          <th className="py-3 font-medium">SEVERITY</th>
-          <th className="py-3 font-medium">SENTIMENT</th>
-          <th className="px-5 py-3 text-right font-medium">OBSERVED</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((s) => {
-          const obs = s.text_clean || s.text
-          return (
-            <tr key={s.record_id} className="border-t border-border/70 transition-colors hover:bg-soft/50">
-              <td className="px-5 py-3.5 font-mono text-[13px] text-txt">{s.service_id ?? '—'}</td>
-              <td className="max-w-[1px] py-3.5 text-[13.5px] text-txt" dir={isAr(obs) ? 'rtl' : 'ltr'}>
-                <span className="line-clamp-1">{clip(obs)}</span>
-                <span className="ml-2 font-mono text-[11px] text-faint">{s.source_type}</span>
-              </td>
-              <td className="py-3.5"><SeverityCell sev={s.severity} /></td>
-              <td className="py-3.5 text-[13px] text-muted">{s.sentiment_label ?? '—'}</td>
-              <td className="px-5 py-3.5 text-right font-mono text-[13px] tnum text-muted">
-                {fmtTime(s.observed_at)}
-              </td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
   )
 }
 

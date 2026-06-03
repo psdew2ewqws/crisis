@@ -1,7 +1,6 @@
 import {
   Zap,
   LayoutGrid,
-  Activity,
   Share2,
   Target,
   FlaskConical,
@@ -16,7 +15,6 @@ import type { Tone } from '../lib/data'
 
 const OPS = [
   { label: 'Dashboard', icon: LayoutGrid, badge: null },
-  { label: 'Signals', icon: Activity, badge: null },
   { label: 'Incident Graph', icon: Share2, badge: null },
   { label: 'Root Cause', icon: Target, badge: null },
   { label: 'Solutions', icon: FlaskConical, badge: null },
