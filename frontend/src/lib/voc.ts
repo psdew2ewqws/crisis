@@ -380,8 +380,30 @@ export interface ScenarioSolutionEval {
   confidence_band: 'high' | 'medium' | 'low'
   confidence_band_ar: string
 }
+export interface ScenarioEvidence {
+  source?: string
+  title?: string
+  year?: number
+  doi?: string | null
+  url?: string
+  oa_status?: string
+  license?: string | null
+  cited_by?: number
+  snippet?: string
+  verified?: boolean
+  verify_how?: string
+}
+export interface ScenarioMonteCarlo {
+  available?: boolean
+  n?: number
+  p10?: number
+  p50?: number
+  p90?: number
+  spread?: number
+}
+export interface ScenarioReference { name: string; url: string }
 export interface ScenarioEvent {
-  stage: 'parse' | 'retrieve' | 'history' | 'select_agents' | 'simulate' | 'debate' | 'detect_predict' | 'solution_eval' | 'done'
+  stage: 'parse' | 'retrieve' | 'history' | 'select_agents' | 'simulate' | 'debate' | 'detect_predict' | 'solution_eval' | 'evidence' | 'done'
   // parse
   script?: 'ar' | 'latin'
   domain?: string
@@ -406,6 +428,17 @@ export interface ScenarioEvent {
   series_before?: ScenarioSeriesPoint[]
   series_after?: ScenarioSeriesPoint[]
   escalation?: ScenarioEscalation
+  // cascade (Jordan drought) extras
+  rainfall_ratio?: number
+  sectors_after?: Record<string, number>
+  montecarlo?: ScenarioMonteCarlo
+  non_mitigating?: string[]
+  references?: ScenarioReference[]
+  baseline?: Record<string, { value: unknown; kind?: string; source_url?: string; note?: string }>
+  label?: string
+  // evidence stage (verified references from the legal research agent)
+  items?: ScenarioEvidence[]
+  abstained?: boolean
   // debate
   role?: string
   agent?: string

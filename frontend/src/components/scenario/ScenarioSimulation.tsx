@@ -21,6 +21,7 @@ import {
   type ScenarioOption,
   type ScenarioPastRun,
   type ScenarioSolutionEval,
+  type ScenarioEvidence,
 } from '../../lib/voc'
 import ScenarioInput from './ScenarioInput'
 import ScenarioStepper, { type StageKey } from './ScenarioStepper'
@@ -33,6 +34,8 @@ import PastRuns from './PastRuns'
 import SolutionEval from './SolutionEval'
 import ResultSummary from './ResultSummary'
 import ScenarioSuggestions from './ScenarioSuggestions'
+import EvidencePanel from './EvidencePanel'
+import JordanDroughtStudy from './JordanDroughtStudy'
 
 // Linear stage order — drives the stepper's "current = next logical stage".
 const STAGE_ORDER: StageKey[] = ['parse', 'retrieve', 'select_agents', 'simulate', 'detect_predict']
@@ -91,6 +94,9 @@ export default function ScenarioSimulation() {
   const [pastRuns, setPastRuns] = useState<ScenarioPastRun[]>([])
   const [pastTotal, setPastTotal] = useState(0)
   const [solutionEval, setSolutionEval] = useState<ScenarioSolutionEval | null>(null)
+  const [evidence, setEvidence] = useState<ScenarioEvidence[]>([])
+  const [evidenceShown, setEvidenceShown] = useState(false)
+  const [evidenceAbstained, setEvidenceAbstained] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
   const startedRef = useRef(false)
@@ -114,6 +120,9 @@ export default function ScenarioSimulation() {
     setPastRuns([])
     setPastTotal(0)
     setSolutionEval(null)
+    setEvidence([])
+    setEvidenceShown(false)
+    setEvidenceAbstained(false)
   }, [])
 
   const onEvent = useCallback((e: ScenarioEvent) => {
@@ -149,6 +158,11 @@ export default function ScenarioSimulation() {
         setSim(e)
         setDoneStages((d) => [...d, 'simulate'])
         setCurrent(nextStage('simulate'))
+        break
+      case 'evidence':
+        setEvidence(e.items ?? [])
+        setEvidenceAbstained(!!e.abstained)
+        setEvidenceShown(true)
         break
       case 'debate':
         setDebateTurns((t) => [
@@ -351,6 +365,20 @@ export default function ScenarioSimulation() {
               />
             </div>
           </>
+        )}
+
+        {/* Jordan drought flagship — cited cascade study + charts (the analysis) */}
+        {sim && sim.engine === 'cascade' && (
+          <div className="mt-6">
+            <JordanDroughtStudy sim={sim} />
+          </div>
+        )}
+
+        {/* Evidence & references (verified, from the legal research agent) */}
+        {evidenceShown && (
+          <div className="mt-6">
+            <EvidencePanel items={evidence} abstained={evidenceAbstained} />
+          </div>
         )}
 
         {/* Solution validator / optimizer */}
