@@ -69,6 +69,25 @@ try:
     from . import db
 except Exception:  # pragma: no cover
     db = None  # type: ignore
+try:
+    from . import cascade_sim
+except Exception:  # pragma: no cover
+    cascade_sim = None  # type: ignore
+try:
+    from . import research_agent
+except Exception:  # pragma: no cover
+    research_agent = None  # type: ignore
+
+
+def _is_jordan_drought(text: str, case_hint: Optional[str]) -> bool:
+    """Route Jordan drought / no-rain scenarios to the WEF-nexus cascade (real data),
+    not the complaint-sentiment graph."""
+    if case_hint == "scenario:jordan_drought_1yr":
+        return True
+    t = (text or "").lower()
+    jordan = any(k in t for k in ("الأردن", "jordan", "الزرقاء", "عمّان", "عمان", "المفرق"))
+    drought = any(k in t for k in ("جفاف", "مطر", "أمطار", "تمطر", "المياه", "drought", "rain", "water"))
+    return jordan and drought
 
 router = APIRouter()
 NDJSON = "application/x-ndjson"
@@ -223,6 +242,13 @@ def simulate_scenario(
     the before/after intervention. intervention_strength is taken from ``strength`` when
     given (the solution-evaluator seeds it from the proposed solution's alignment), else
     from the top retrieved success lesson's measured risk reduction. Never raises."""
+    # Jordan drought / no-rain -> the deterministic WEF-nexus cascade (real data + Monte-Carlo
+    # + references), NOT the complaint-sentiment graph (which returns a constant 43.2).
+    if case_hint == "scenario:jordan_drought_1yr" and cascade_sim is not None:
+        try:
+            return cascade_sim.study()
+        except Exception:
+            pass
     if mesa_sim is None:
         return {"available": False}
     # explicit strength wins; else seed from the precedent (bounded); else the default
@@ -704,13 +730,32 @@ def run_scenario(body: ScenarioIn) -> Iterator[bytes]:
             if sid.startswith("cluster:"):
                 case_hint = sid
                 break
+    # Jordan drought / no-rain -> the cited WEF-nexus cascade flagship
+    is_drought = _is_jordan_drought(text, case_hint)
+    if is_drought:
+        case_hint = "scenario:jordan_drought_1yr"
     top_success = next((c for c in cases if (c.get("kind") or "success") == "success"), None)
     sim = simulate_scenario(case_hint, top_success)
     esc = _escalation_signal(case_hint, sim, body.horizon_days)
-    yield _ev("simulate", **{k: sim.get(k) for k in
-              ("available", "engine", "risk_before", "risk_after", "risk_reduction",
-               "intervention_strength", "n_nodes", "seir_before", "seir_after",
-               "series_before", "series_after")}, escalation=esc)
+    keys = ["available", "engine", "risk_before", "risk_after", "risk_reduction",
+            "intervention_strength", "n_nodes", "seir_before", "seir_after",
+            "series_before", "series_after"]
+    if sim.get("engine") == "cascade":
+        keys += ["rainfall_ratio", "sectors_after", "montecarlo", "non_mitigating",
+                 "edge_weights", "baseline", "references", "label"]
+    yield _ev("simulate", **{k: sim.get(k) for k in keys if k in sim}, escalation=esc)
+
+    # ---- evidence: real, verified references (legal research agent) ----
+    # OpenAlex is English-indexed, so the flagship uses a curated English query rather than
+    # the raw Arabic scenario text (which retrieves nothing).
+    if is_drought and research_agent is not None:
+        try:
+            ev = research_agent.gather(
+                "Jordan drought water scarcity groundwater agriculture", jordan=True, limit=6)
+            yield _ev("evidence", items=ev.get("evidence", []),
+                      count=len(ev.get("evidence", [])), abstained=ev.get("abstained"))
+        except Exception:
+            pass
 
     # ---- optional debate (gated: requested OR mixed precedents) AND meaningful ----
     successes = [c for c in cases if (c.get("kind") or "success") == "success"]
