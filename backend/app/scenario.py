@@ -81,6 +81,10 @@ try:
     from . import guardrails_gateway as _guard
 except Exception:  # pragma: no cover
     _guard = None  # type: ignore
+try:
+    from . import report_writer
+except Exception:  # pragma: no cover
+    report_writer = None  # type: ignore
 
 
 def _is_jordan_drought(text: str, case_hint: Optional[str]) -> bool:
@@ -846,6 +850,30 @@ def scenario_options() -> dict:
 @router.post("/api/scenario/detect")
 def scenario_detect(body: ScenarioIn) -> StreamingResponse:
     return StreamingResponse(run_scenario(body), media_type=NDJSON)
+
+
+class ReportIn(BaseModel):
+    text: str = ""
+    sim: Optional[dict] = None
+    detection: Optional[dict] = None
+    prediction: Optional[dict] = None
+    confidence: Optional[dict] = None
+    references: Optional[list] = None
+    evidence: Optional[list] = None
+
+
+@router.post("/api/scenario/report")
+def scenario_report(body: ReportIn) -> dict:
+    """Deterministic WRITTEN report (rich Arabic prose + structured references) from the
+    accumulated run facts. Never raises; works with Ollama down."""
+    if report_writer is None:
+        return {"ok": False, "error": "report_writer unavailable"}
+    from datetime import datetime, timezone
+    gen = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    try:
+        return {"ok": True, **report_writer.render(body.model_dump(), generated_at=gen)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
 
 
 @router.post("/api/scenario/retain")

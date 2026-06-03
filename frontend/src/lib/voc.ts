@@ -482,6 +482,37 @@ export interface ScenarioOption { value: string; count: number }
 export interface ScenarioOptions { locations: ScenarioOption[]; services: ScenarioOption[] }
 export const getScenarioOptions = () => j<ScenarioOptions>('/api/scenario/options')
 
+// Deterministic written report (rich Arabic prose + structured references)
+export interface ReportKeyFigure { label: string; value: string; source: string }
+export interface ReportSection { title_ar: string; title_en: string; paragraphs: string[] }
+export interface ScenarioReportDoc {
+  ok: boolean
+  meta?: { title_ar: string; scenario: string; report_no: string; generated_at: string; flagship: boolean }
+  key_figures?: ReportKeyFigure[]
+  sections?: ReportSection[]
+  references?: {
+    peer_reviewed: { title?: string; year?: number; oa?: string; doi?: string }[]
+    institutional: { name?: string; url?: string }[]
+    count: number
+  }
+}
+export async function getScenarioReport(body: {
+  text: string
+  sim: ScenarioEvent | null
+  detection?: ScenarioDetection
+  prediction?: ScenarioPrediction
+  confidence?: ScenarioConfidence
+  references?: ScenarioReference[]
+  evidence?: ScenarioEvidence[]
+}): Promise<ScenarioReportDoc> {
+  const res = await fetch(`${BASE}/api/scenario/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return res.json()
+}
+
 // Streams POST /api/scenario/detect, invoking onEvent per NDJSON line.
 export async function streamScenario(
   body: ScenarioInput,

@@ -15,6 +15,8 @@ import { AlertTriangle, Info, SlidersHorizontal, ChevronDown } from 'lucide-reac
 import {
   streamScenario,
   getScenarioOptions,
+  getScenarioReport,
+  type ScenarioReportDoc,
   type ScenarioEvent,
   type ScenarioCitation,
   type ScenarioAgent,
@@ -37,7 +39,7 @@ import ScenarioSuggestions from './ScenarioSuggestions'
 import EvidencePanel from './EvidencePanel'
 import JordanDroughtStudy from './JordanDroughtStudy'
 import ScenarioReport, { type ReportData } from './ScenarioReport'
-import { downloadElementAsPdf } from '../../lib/pdf'
+import { downloadElementsAsPdf } from '../../lib/pdf'
 import { FileText, Download, X } from 'lucide-react'
 
 // Linear stage order — drives the stepper's "current = next logical stage".
@@ -102,14 +104,35 @@ export default function ScenarioSimulation() {
   const [evidenceAbstained, setEvidenceAbstained] = useState(false)
   const [showReport, setShowReport] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [reportDoc, setReportDoc] = useState<ScenarioReportDoc | null>(null)
+
+  const openReport = useCallback(async () => {
+    setReportDoc(null)
+    setShowReport(true)
+    try {
+      const doc = await getScenarioReport({
+        text,
+        sim,
+        detection: verdict?.detection,
+        prediction: verdict?.prediction,
+        confidence: verdict?.confidence,
+        evidence,
+      })
+      if (doc.ok) setReportDoc(doc)
+    } catch {
+      /* the fallback summary renders */
+    }
+  }, [text, sim, verdict, evidence])
 
   const downloadReport = useCallback(async () => {
-    const el = document.getElementById('aegis-report')
-    if (!el) return
+    const main = document.getElementById('aegis-report')
+    const refsPage = document.getElementById('aegis-references-page')
+    if (!main) return
     setDownloading(true)
     try {
       const stamp = new Date().toISOString().slice(0, 10)
-      await downloadElementAsPdf(el, `AEGIS-Report-${stamp}.pdf`)
+      const els = [main, refsPage].filter(Boolean) as HTMLElement[]
+      await downloadElementsAsPdf(els, `AEGIS-Report-${stamp}.pdf`)
     } catch {
       /* user can retry */
     } finally {
@@ -290,8 +313,6 @@ export default function ScenarioSimulation() {
     confidence: verdict?.confidence ?? undefined,
     flagsAr,
     sim,
-    solutionEval,
-    evidence,
   }
 
   return (
@@ -313,7 +334,7 @@ export default function ScenarioSimulation() {
           {verdict && (
             <button
               type="button"
-              onClick={() => setShowReport(true)}
+              onClick={openReport}
               className="flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-[13.5px] font-medium text-muted transition-colors hover:bg-cardhi hover:text-txt"
             >
               <FileText className="h-4 w-4" />
@@ -503,7 +524,7 @@ export default function ScenarioSimulation() {
               </button>
             </div>
             <div className="overflow-hidden rounded-lg shadow-2xl">
-              <ScenarioReport data={reportData} />
+              <ScenarioReport data={reportData} doc={reportDoc} />
             </div>
           </div>
         </div>
