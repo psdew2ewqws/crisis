@@ -164,6 +164,18 @@ def chat(
     if not message:
         return {"answer": "Please type a question.", "guardrails_applied": [], "model_ok": False}
 
+    # 0. Guardrails gateway — fail-closed on harm / out-of-scope / out-of-jurisdiction,
+    #    redact PII before the message ever reaches the model.
+    try:
+        from . import guardrails_gateway as _guard
+        _rail = _guard.input_rail(message)
+        if _rail["action"] in ("refuse", "abstain"):
+            return {"answer": _rail["reason_ar"], "refused": True,
+                    "guardrails_applied": [{"rail": _rail["reason"]}], "model_ok": False}
+        message = _guard.redact_pii(_rail["cleaned"] or message)
+    except Exception:
+        pass
+
     # 1. Find relevant guardrails
     relevant = gs.find_relevant(message, n=5)
     guardrail_block = ""

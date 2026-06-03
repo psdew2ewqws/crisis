@@ -77,6 +77,10 @@ try:
     from . import research_agent
 except Exception:  # pragma: no cover
     research_agent = None  # type: ignore
+try:
+    from . import guardrails_gateway as _guard
+except Exception:  # pragma: no cover
+    _guard = None  # type: ignore
 
 
 def _is_jordan_drought(text: str, case_hint: Optional[str]) -> bool:
@@ -637,8 +641,21 @@ def _feed_provisional(text: str, domain: str, service: str, location: str,
 
 def run_scenario(body: ScenarioIn) -> Iterator[bytes]:
     text_raw = (body.text or "").strip()
-    text = _neutralize(text_raw)
     flags: List[str] = []
+
+    # ---- guardrails: input rail (fail-closed on harm/scope/jurisdiction) ----
+    if _guard is not None:
+        rail = _guard.input_rail(text_raw)
+        if rail["action"] == "refuse":
+            yield _ev("guardrail", action="refuse", reason=rail["reason"],
+                      message_ar=rail["reason_ar"], flags=rail["flags"])
+            yield _ev("done", aborted=True, reason=rail["reason"])
+            return
+        text = rail["cleaned"] or text_raw
+        if rail["flags"]:
+            flags.extend(rail["flags"])  # e.g. injection / pii surfaced downstream
+    else:
+        text = _neutralize(text_raw)
 
     # ---- parse ----
     warnings = _intake_guard(text)
@@ -778,12 +795,13 @@ def run_scenario(body: ScenarioIn) -> Iterator[bytes]:
         except Exception:
             pass
 
-    # ---- LEARN + SAVE this iteration ----
+    # ---- LEARN + SAVE this iteration (PII redacted on the write path) ----
     try:
+        store_text = _guard.redact_pii(text) if _guard else text
         if scenario_runs is not None:
-            scenario_runs.save_run(text=text, domain=domain, service=body.service or "",
+            scenario_runs.save_run(text=store_text, domain=domain, service=body.service or "",
                                    location=body.location or "", verdict=verdict, sim=sim)
-        _feed_provisional(text, domain, body.service or "", body.location or "", verdict, sim)
+        _feed_provisional(store_text, domain, body.service or "", body.location or "", verdict, sim)
     except Exception:
         pass
 

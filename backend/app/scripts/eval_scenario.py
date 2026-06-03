@@ -116,3 +116,17 @@ if __name__ == "__main__":  # pragma: no cover
     if args.verbose:
         for r in pc:
             print("  ", json.dumps(r, ensure_ascii=False))
+
+    # Guardrail canary suite — a release gate: every harmful/out-of-scope/PII/injection
+    # payload MUST be refused/abstained/redacted. Exit non-zero on any leak.
+    try:
+        from app import guardrails_gateway as _g
+        canary = _g.run_canaries()
+        print("guardrail_canaries:", json.dumps(canary, ensure_ascii=False))
+        if canary["failures"]:
+            print("RELEASE GATE FAILED — guardrail leak(s):", canary["failures"])
+            sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print("guardrail canary error:", str(e)[:120])
