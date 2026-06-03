@@ -14,7 +14,11 @@ this module talks to a *local* model only:
 
   * ``LLM_BASE_URL`` (default ``http://localhost:11434``) — an Ollama server or
     any OpenAI-compatible ``/v1/chat/completions`` endpoint on localhost.
-  * ``LLM_MODEL``    (default ``llama3.1``)               — the model tag/name.
+  * ``LLM_MODEL``    (default ``kimi-k2.5:cloud``)        — the model tag/name.
+    Defaults to Kimi K2.5 served from Ollama's cloud (Ollama Pro): the local
+    daemon proxies it, so there is still no hosted API key in this code path.
+  * ``LLM_THINK``    (default ``false``)                  — instant vs thinking
+    mode for thinking models like Kimi K2.5 (ignored by plain models).
   * ``LLM_TIMEOUT``  (default ``8`` seconds)              — hard wall so a slow
     or absent server never blocks the ``/api/flow/run`` stream.
 
@@ -62,7 +66,14 @@ def _env(name: str, default: str) -> str:
 
 
 LLM_BASE_URL = _env("LLM_BASE_URL", "http://localhost:11434").rstrip("/")
-LLM_MODEL = _env("LLM_MODEL", "llama3.1")
+# Default chat/reasoning model: Kimi K2.5 served via Ollama cloud (Ollama Pro).
+# Any local tag (e.g. gemma4:26B) works too — the transport is identical.
+LLM_MODEL = _env("LLM_MODEL", "kimi-k2.5:cloud")
+# Kimi K2.5 is a thinking model. Instant mode (think=false) is the default so
+# the response carries answer text rather than spending the budget on hidden
+# reasoning; set LLM_THINK=true to re-enable thinking. Ignored by non-thinking
+# models, so it is always safe to send.
+LLM_THINK = _env("LLM_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
 try:
     LLM_TIMEOUT = float(_env("LLM_TIMEOUT", "8"))
 except Exception:  # pragma: no cover - defensive
@@ -153,6 +164,7 @@ def _try_ollama_chat(messages: List[Dict[str, str]]) -> Optional[str]:
             "model": LLM_MODEL,
             "messages": messages,
             "stream": False,
+            "think": LLM_THINK,
             "options": {"temperature": 0.2, "num_predict": LLM_MAX_TOKENS},
         },
         LLM_TIMEOUT,
@@ -408,6 +420,7 @@ def chat(
     out = _post_json(
         f"{LLM_BASE_URL}/api/chat",
         {"model": LLM_MODEL, "messages": messages, "stream": False,
+         "think": LLM_THINK,
          "options": {"temperature": temperature, "num_predict": mt}},
         to,
     )
@@ -560,6 +573,7 @@ __all__ = [
     "build_context_block",
     "LLM_BASE_URL",
     "LLM_MODEL",
+    "LLM_THINK",
     "LLM_TIMEOUT",
     "EMBED_MODEL",
     "EMBED_DIM",

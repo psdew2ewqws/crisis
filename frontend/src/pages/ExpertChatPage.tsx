@@ -25,20 +25,28 @@ import {
   Loader2,
 } from 'lucide-react'
 
-/* ─── palette (matches AEGIS tokens) ───────────────────────────────────── */
+/* ─── palette (matches AEGIS tokens) ───────────────────────────────────────
+ * Neutral surfaces reference the same CSS variables the rest of the app uses
+ * (see index.css [data-theme]) so this page tracks light/dark automatically.
+ * Accents stay static; their tinted backgrounds/borders use alpha so they read
+ * correctly on both a dark and a white surface.                              */
 const C = {
-  bg: '#0A0A0B',
-  card: '#131417',
-  cardhi: '#181A1E',
-  border: '#212228',
-  soft: '#1A1B20',
-  txt: '#ECEDEE',
-  muted: '#8B8D96',
-  faint: '#62646D',
+  bg: 'var(--color-bg)',
+  card: 'var(--color-card)',
+  cardhi: 'var(--color-cardhi)',
+  border: 'var(--color-border)',
+  soft: 'var(--color-soft)',
+  txt: 'var(--color-txt)',
+  muted: 'var(--color-muted)',
+  faint: 'var(--color-faint)',
   blue: '#3B82F6',
   danger: '#F04359',
   good: '#34D399',
   warn: '#FBBF24',
+  goodBg: 'rgba(52,211,153,0.12)',
+  goodBorder: 'rgba(52,211,153,0.35)',
+  warnBg: 'rgba(251,191,36,0.12)',
+  warnBorder: 'rgba(251,191,36,0.35)',
 } as const
 
 /* ─── API client ────────────────────────────────────────────────────────── */
@@ -147,7 +155,7 @@ function GuardrailBadge({ items }: { items: GuardrailApplied[] }) {
   return (
     <span
       className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.1em]"
-      style={{ background: '#1a2e1a', color: C.good, border: `1px solid #2a4a2a` }}
+      style={{ background: C.goodBg, color: C.good, border: `1px solid ${C.goodBorder}` }}
       title={items.map((g) => g.question).join('\n')}
     >
       <ShieldCheck className="h-2.5 w-2.5" />
@@ -178,7 +186,7 @@ function CorrectionForm({
   return (
     <div
       className="mt-2 rounded-lg border p-3"
-      style={{ borderColor: C.warn, background: '#1e1a0e' }}
+      style={{ borderColor: C.warnBorder, background: C.warnBg }}
     >
       <div className="mb-2 flex items-center gap-1.5 font-mono text-[9px] tracking-[0.12em]" style={{ color: C.warn }}>
         <ShieldCheck className="h-3 w-3" />
@@ -267,7 +275,7 @@ function MessageBubble({
           dir={rtl ? 'rtl' : 'ltr'}
           style={{
             background: isUser ? C.blue : C.card,
-            color: C.txt,
+            color: isUser ? '#FFFFFF' : C.txt,
             border: isUser ? 'none' : `1px solid ${C.border}`,
             borderTopLeftRadius: isUser ? undefined : 4,
             borderTopRightRadius: isUser ? 4 : undefined,
@@ -300,7 +308,7 @@ function MessageBubble({
                 <button
                   onClick={() => onApproveAsGuardrail(msg.id)}
                   className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
-                  style={{ color: C.good, border: `1px solid #2a4a2a`, background: '#0e1a0e' }}
+                  style={{ color: C.good, border: `1px solid ${C.goodBorder}`, background: C.goodBg }}
                   title="Approve this answer as a guardrail for the agent swarm"
                 >
                   <ShieldCheck className="h-3 w-3" />
@@ -309,7 +317,7 @@ function MessageBubble({
                 <button
                   onClick={() => onCorrect(msg.id)}
                   className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors"
-                  style={{ color: C.warn, border: `1px solid #3a2e0a`, background: '#1e1a0e' }}
+                  style={{ color: C.warn, border: `1px solid ${C.warnBorder}`, background: C.warnBg }}
                   title="This answer is wrong — correct it"
                 >
                   <XCircle className="h-3 w-3" />
@@ -388,8 +396,8 @@ function GuardrailsPanel({
               key={g.id}
               className="rounded-xl border p-4"
               style={{
-                borderColor: g.active ? C.good + '40' : C.border,
-                background: g.active ? '#0e1a0e' : C.card,
+                borderColor: g.active ? C.goodBorder : C.border,
+                background: g.active ? C.goodBg : C.card,
                 opacity: g.active ? 1 : 0.55,
               }}
             >
@@ -654,7 +662,7 @@ export default function ExpertChatPage() {
           <div className="flex items-center gap-3">
             <div
               className="grid h-8 w-8 place-items-center rounded-lg"
-              style={{ background: '#1a2e1a', border: `1px solid #2a4a2a` }}
+              style={{ background: C.goodBg, border: `1px solid ${C.goodBorder}` }}
             >
               <Bot className="h-4 w-4" style={{ color: C.good }} />
             </div>
@@ -672,9 +680,9 @@ export default function ExpertChatPage() {
             onClick={() => setShowGuardrails((s) => !s)}
             className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] transition-colors"
             style={{
-              background: showGuardrails ? '#1a2e1a' : C.soft,
+              background: showGuardrails ? C.goodBg : C.soft,
               color: showGuardrails ? C.good : C.muted,
-              border: `1px solid ${showGuardrails ? '#2a4a2a' : C.border}`,
+              border: `1px solid ${showGuardrails ? C.goodBorder : C.border}`,
             }}
           >
             <ShieldCheck className="h-3.5 w-3.5" />
@@ -693,7 +701,7 @@ export default function ExpertChatPage() {
         {health && !health.model_available && (
           <div
             className="flex items-center gap-2 px-6 py-2.5 text-[12.5px]"
-            style={{ background: '#1e1a0e', borderBottom: `1px solid #3a2e0a`, color: C.warn }}
+            style={{ background: C.warnBg, borderBottom: `1px solid ${C.warnBorder}`, color: C.warn }}
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
             Gemma model offline. Start Ollama and run{' '}
