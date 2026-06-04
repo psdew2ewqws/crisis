@@ -49,15 +49,53 @@ def _env(name: str, default: str) -> str:
 
 
 GEMMA_BASE_URL = _env("GEMMA_BASE_URL", _env("LLM_BASE_URL", "http://localhost:11434")).rstrip("/")
-# Chat model. Default: Kimi K2.5 via Ollama cloud (Ollama Pro). The env name is
-# kept as GEMMA_MODEL for backwards compatibility; set it to any Ollama tag.
-GEMMA_MODEL = _env("GEMMA_MODEL", "kimi-k2.5:cloud")
-# Thinking-model toggle (Kimi K2.5). false = instant mode → answer text only.
+# Chat model. Default is LOCAL-first (gemma4:26b) so the swarm works out of the box
+# without a cloud subscription; ``_resolve_model`` below auto-falls-back to whatever
+# local model IS pulled if this exact tag is absent. Set GEMMA_MODEL to override.
+GEMMA_MODEL = _env("GEMMA_MODEL", "gemma4:26b")
+# Keep the loaded model warm between the ~20-40 serial swarm calls (avoids the
+# multi-second cold reload of a 26B model that made deliberation look "stuck").
+GEMMA_KEEP_ALIVE = _env("GEMMA_KEEP_ALIVE", "30m")
+# Thinking-model toggle. false = instant mode → answer text only.
 LLM_THINK = _env("LLM_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
 try:
-    GEMMA_TIMEOUT = float(_env("GEMMA_TIMEOUT", "30"))
+    GEMMA_TIMEOUT = float(_env("GEMMA_TIMEOUT", "120"))
 except Exception:
-    GEMMA_TIMEOUT = 30.0
+    GEMMA_TIMEOUT = 120.0
+
+# Cache the local /api/tags list briefly so model resolution adds no per-call latency.
+_TAGS_CACHE: Dict[str, Any] = {"ts": 0.0, "models": []}
+_MODEL_PREF = ("gemma", "qwen", "llama", "mistral", "phi", "deepseek")
+
+
+def _local_models() -> List[str]:
+    import time
+    now = time.monotonic()
+    if now - _TAGS_CACHE["ts"] < 30:
+        return _TAGS_CACHE["models"]
+    models: List[str] = []
+    try:
+        req = urllib.request.Request(f"{GEMMA_BASE_URL}/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=3) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+        models = [m.get("name") for m in data.get("models", []) if m.get("name")]
+    except Exception:
+        models = []
+    _TAGS_CACHE.update(ts=now, models=models)
+    return models
+
+
+def _resolve_model() -> str:
+    """Use GEMMA_MODEL if it is actually pulled locally; otherwise (e.g. a ':cloud'
+    tag with no subscription) fall back to whatever capable local model IS available."""
+    local = _local_models()
+    if not local or GEMMA_MODEL in local:
+        return GEMMA_MODEL
+    for pref in _MODEL_PREF:
+        for m in local:
+            if pref in m.lower():
+                return m
+    return local[0]
 
 SYSTEM_PROMPT = """\
 You are AEGIS Expert Assistant, a domain intelligence aide for the AEGIS water-crisis \
@@ -119,19 +157,21 @@ def _call_model(messages: List[Dict[str, str]], num_predict: int = 512) -> tuple
     ``num_predict`` caps the generated length (callers that need a longer, complete
     answer — e.g. a full report section — pass a higher budget).
     Falls back to offline message if unreachable."""
+    model = _resolve_model()
     if _is_ollama_native():
         url = f"{GEMMA_BASE_URL}/api/chat"
         payload: Dict[str, Any] = {
-            "model": GEMMA_MODEL,
+            "model": model,
             "messages": messages,
             "stream": False,
             "think": LLM_THINK,
+            "keep_alive": GEMMA_KEEP_ALIVE,
             "options": {"num_predict": num_predict, "temperature": 0.3},
         }
     else:
         url = f"{GEMMA_BASE_URL}/v1/chat/completions"
         payload = {
-            "model": GEMMA_MODEL,
+            "model": model,
             "messages": messages,
             "max_tokens": num_predict,
             "temperature": 0.3,
@@ -151,14 +191,10 @@ def _call_model(messages: List[Dict[str, str]], num_predict: int = 512) -> tuple
 
 
 def model_available() -> bool:
-    """Quick liveness check — HEAD or GET /api/tags."""
-    url = f"{GEMMA_BASE_URL}/api/tags"
-    req = urllib.request.Request(url, method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=3) as r:
-            return r.status == 200
-    except Exception:
-        return False
+    """A usable model exists = at least one local model is pulled (Ollama up). Honest:
+    a ':cloud' tag with no local models returns False, so callers degrade deterministically
+    instead of looping on empty cloud responses (the old check returned True for any tag)."""
+    return bool(_local_models())
 
 
 # ---------------------------------------------------------------------------
