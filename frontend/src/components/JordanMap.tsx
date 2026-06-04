@@ -272,7 +272,7 @@ export default function JordanMap() {
     setSelected(prev => (prev === name ? null : name))
 
   return (
-    <div className="mx-auto w-full max-w-[640px] group relative overflow-hidden rounded-xl border border-border bg-card transition-[border-color,box-shadow] duration-200 hover:border-border/80 hover:shadow-xl hover:shadow-black/20">
+    <div className="w-full group relative overflow-hidden rounded-xl border border-border bg-card transition-[border-color,box-shadow] duration-200 hover:border-border/80 hover:shadow-xl hover:shadow-black/20">
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-gradient-to-r from-blue/60 to-transparent" />
 
       {/* header */}
