@@ -20,7 +20,7 @@ import {
   startDeliberationJob,
   getDeliberationStatus,
   getActiveDeliberations,
-  getSolutions,
+  getSavedSolutions,
   getSolution,
   solutionMarkdownUrl,
   type SavedSolutionMeta,
@@ -180,7 +180,7 @@ export default function ScenarioSimulation() {
   const delibCursor = useRef(0)
 
   const loadHistory = useCallback(() => {
-    getSolutions().then((r) => setHistory(r.solutions ?? [])).catch(() => {})
+    getSavedSolutions().then((r) => setHistory(r.solutions ?? [])).catch(() => {})
   }, [])
 
   // Apply one streamed deliberation event to the UI (shared by live polling + re-attach).

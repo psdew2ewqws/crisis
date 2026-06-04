@@ -671,7 +671,7 @@ export const saveSolution = (body: SavedSolutionIn) =>
     body: JSON.stringify(body),
   })
 export interface SavedSolutionMeta { id: string; ts: string; scenario: string; title_ar: string; deliberated: boolean; n_turns: number }
-export const getSolutions = () => j<{ solutions: SavedSolutionMeta[] }>('/api/scenario/solutions')
+export const getSavedSolutions = () => j<{ solutions: SavedSolutionMeta[] }>('/api/scenario/solutions')
 export const getSolution = (id: string) =>
   j<{ id: string; ts: string; scenario: string; title_ar: string; transcript: DeliberationEvent[]; tallies: DeliberationEvent[]; report: ScenarioReportDoc; meta: Record<string, unknown> }>(
     `/api/scenario/solution/${encodeURIComponent(id)}`)
