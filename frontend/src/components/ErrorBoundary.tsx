@@ -1,6 +1,5 @@
 import { Component, type ReactNode } from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
-import { translate, useLocaleStore } from '../lib/i18n'
 
 // A view-level error boundary so a single panel/page render error degrades to a
 // recoverable card instead of unmounting the whole console (black screen).
@@ -26,15 +25,13 @@ export default class ErrorBoundary extends Component<
 
   render() {
     if (this.state.error) {
-      const locale = useLocaleStore.getState().locale
-      const tr = (k: string) => translate(locale, k)
       return (
         <div className="grid min-h-0 flex-1 place-items-center p-8">
           <div className="max-w-md rounded-xl border border-danger/40 bg-card p-6 text-center">
             <AlertTriangle className="mx-auto h-6 w-6 text-danger" />
-            <h2 className="mt-3 text-[15px] font-semibold text-txt">{tr('This view hit an error')}</h2>
+            <h2 className="mt-3 text-[15px] font-semibold text-txt">This view hit an error</h2>
             <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-              {tr('The rest of the console is still running. You can retry this view.')}
+              The rest of the console is still running. You can retry this view.
             </p>
             <p className="mt-2 break-words font-mono text-[11px] text-faint">
               {String(this.state.error?.message ?? this.state.error)}
@@ -44,7 +41,7 @@ export default class ErrorBoundary extends Component<
               className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#2f76e8]"
             >
               <RefreshCw className="h-4 w-4" />
-              {tr('Retry')}
+              Retry
             </button>
           </div>
         </div>

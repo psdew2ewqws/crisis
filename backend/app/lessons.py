@@ -55,6 +55,15 @@ _JSON_FALLBACK = os.path.join(_DATA_DIR, "successful_lessons.json")
 
 EMBED_DIM = int(getattr(llm, "EMBED_DIM", 768) if llm else 768)
 
+# Recency prior for retrieval: an exponential half-life on lesson age. Crisis
+# playbooks age slowly, so the default is long; env-tunable. The recency term is a
+# small additive prior (weight <=0.15) with a floor, so an old-but-perfect precedent
+# is down-weighted — never erased. recency = 0.5 ** (age_days / HALF_LIFE_DAYS).
+try:
+    HALF_LIFE_DAYS = float(os.environ.get("TEMPORAL_HALFLIFE_DAYS", "240") or "240")
+except (TypeError, ValueError):
+    HALF_LIFE_DAYS = 240.0
+
 Domain = Literal["water", "public_service", "healthcare", "supply_chain", "other"]
 # Outcomes split into two families. The system stores BOTH so future cases can
 # learn from what worked AND from what was confirmed not to work (anti-patterns).
@@ -137,6 +146,9 @@ class ReflectIn(BaseModel):
     validation_reasons: Optional[str] = None
     outcome_notes: Optional[str] = None
     confidence: float = 0.8
+    # Ingestion / backfill overrides (optional):
+    ts: Optional[str] = None            # source timestamp (ISO); defaults to now()
+    risk_source: Optional[str] = None   # 'simulated' | 'heuristic' | 'measured'
 
 
 class SearchIn(BaseModel):
@@ -191,6 +203,43 @@ def _embed_text(text: str) -> List[float]:
         except Exception:
             pass
     return _hash_embed(text)
+
+
+def _embed_real(text: str) -> tuple[List[float], bool]:
+    """Embed and report whether the vector is a REAL model embedding (True) or the
+    deterministic hash fallback (False).
+
+    Callers use the flag to refuse poisoning the vector store / cosine ranking with
+    semantically-null hash vectors when Ollama is down — a hash query vector makes
+    Pinecone return confident-looking RANDOM neighbours, which is worse than blocking.
+    """
+    if llm is not None:
+        try:
+            vec = llm.embed(text)
+            if vec:
+                return vec, True
+        except Exception:
+            pass
+    return _hash_embed(text), False
+
+
+def _recency_weight(ts: Any) -> float:
+    """Exponential half-life recency prior in [0.3, 1.0].
+
+    Missing or unparseable ts -> 1.0 (no-op, never raises): Pinecone returns ts as an
+    ISO string, so we parse defensively. The 0.3 floor means an old-but-perfect
+    precedent is down-weighted, never erased.
+    """
+    if not ts:
+        return 1.0
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        age_days = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
+        return max(0.3, min(1.0, 0.5 ** (age_days / HALF_LIFE_DAYS)))
+    except Exception:
+        return 1.0
 
 
 def _hash_embed(text: str, dim: int = EMBED_DIM) -> List[float]:
@@ -260,9 +309,11 @@ def _json_save(rows: List[dict[str, Any]]) -> None:
         json.dump(rows, fh, ensure_ascii=False, indent=1)
 
 
-def _persist(row: dict[str, Any]) -> dict[str, Any]:
+def _persist(row: dict[str, Any], *, allow_vector: bool = True) -> dict[str, Any]:
+    """Persist a lesson. ``allow_vector=False`` (Ollama down → hash embedding) routes
+    to the JSON store ONLY, so a semantically-null vector never poisons Pinecone."""
     stored = False
-    if _vs is not None and _vs.available():
+    if allow_vector and _vs is not None and _vs.available():
         try:
             _vs.insert_lesson(row)
             stored = True
@@ -270,10 +321,18 @@ def _persist(row: dict[str, Any]) -> dict[str, Any]:
             pass
     if not stored:
         rows = _json_load()
-        if not any(r.get("id") == row["id"] for r in rows):
-            rows.insert(0, {k: v for k, v in row.items() if k != "embedding"})
-            rows[0]["embedding"] = row.get("embedding")
-            _json_save(rows)
+        # Idempotent re-ingest: drop any existing row with the same id OR the same
+        # real source_case_id, so re-running the backfill overwrites instead of piling up.
+        sid = row.get("source_case_id")
+        rows = [
+            r for r in rows
+            if r.get("id") != row["id"]
+            and not (sid and sid != "manual" and r.get("source_case_id") == sid)
+        ]
+        clean = {k: v for k, v in row.items() if k != "embedding"}
+        clean["embedding"] = row.get("embedding")
+        rows.insert(0, clean)
+        _json_save(rows)
     return row
 
 
@@ -407,11 +466,12 @@ def reflect_and_store_lesson(payload: ReflectIn) -> dict[str, Any]:
         lesson_text, reason, when,
         payload.root_cause_details, payload.intervention, category,
     ])
-    embedding = _embed_text(embed_src)
+    embedding, embed_is_real = _embed_real(embed_src)
+    risk_source = payload.risk_source or "simulated"
 
     row = {
         "id": _new_id(),
-        "ts": _now_iso(),
+        "ts": payload.ts or _now_iso(),
         "kind": kind,
         "domain": domain,
         "root_cause_category": category,
@@ -426,14 +486,18 @@ def reflect_and_store_lesson(payload: ReflectIn) -> dict[str, Any]:
         "applicable_when": when,
         "source_case_id": payload.source_case_id or payload.cluster_id or "manual",
         "confidence": float(payload.confidence),
+        "risk_source": risk_source,
         "embedding": embedding,
         "metadata": json.dumps({
             "cluster_id": payload.cluster_id,
             "service": payload.service,
-            "engine": "llm" if llm and llm.available() else "deterministic",
+            "risk_source": risk_source,
+            "engine": "llm" if embed_is_real else "deterministic",
         }),
     }
-    _persist(row)
+    # Never poison Pinecone with a semantically-null hash vector (Ollama down):
+    # gate the vector write on whether we got a REAL model embedding.
+    _persist(row, allow_vector=embed_is_real)
     pub = _row_to_public(row)
     pub["stored"] = True
     return pub
@@ -453,18 +517,23 @@ def retrieve_relevant_lessons(
     and what to avoid; pass ``"success"`` or ``"failure"`` to restrict.
     """
     limit = max(1, min(limit, 20))
+
+    # Build ONE query vector and track whether it is a REAL model embedding. A hash
+    # query vector is NEVER sent to Pinecone — it returns confident-looking RANDOM
+    # neighbours. When Ollama is down we browse by metadata filter (qvec=None) and let
+    # keyword + recency carry the ranking ("grounded-keyword" mode).
+    qtext = (query or "").strip() or f"{domain or ''} {root_cause_category or ''}".strip()
+    qvec: Optional[List[float]] = None
+    qvec_real = False
+    if qtext:
+        qvec, qvec_real = _embed_real(qtext)
+
     candidates: List[dict[str, Any]] = []
     if _vs is not None and _vs.available():
         try:
-            # Pinecone ranks by cosine server-side; pass the query vector so the
-            # most relevant lessons come back first, then we re-blend below.
-            qv = None
-            if query and query.strip():
-                qv = _embed_text(query.strip())
-            elif root_cause_category or domain:
-                qv = _embed_text(f"{domain or ''} {root_cause_category or ''}")
             candidates = _vs.query(
-                qvec=qv, domain=domain, category=root_cause_category, kind=kind, top_k=50,
+                qvec=qvec if qvec_real else None,
+                domain=domain, category=root_cause_category, kind=kind, top_k=50,
             )
         except Exception:
             candidates = []
@@ -482,30 +551,44 @@ def retrieve_relevant_lessons(
                 or cat in (c.get("root_cause_details") or "").lower()
             ]
 
-    qvec: Optional[List[float]] = None
-    if query and query.strip():
-        qvec = _embed_text(query.strip())
-    elif root_cause_category or domain:
-        qvec = _embed_text(f"{domain or ''} {root_cause_category or ''}")
-
+    qtokens = {t for t in re.split(r"\W+", (query or "").lower()) if len(t) > 2}
     scored: List[tuple] = []
     for c in candidates:
-        emb = _parse_embedding(c.get("embedding"))
-        # JSON rows carry the raw embedding; Pinecone rows carry a server-side
-        # cosine ``score`` instead — use whichever is present.
-        if qvec and emb:
-            sem = _cosine(qvec, emb)
+        # Semantic term — REAL cosine only. JSON rows carry the raw embedding; Pinecone
+        # rows carry a server-side cosine ``score``. With no real query vector, semantics
+        # contribute 0 and keyword + recency carry the ranking.
+        if qvec_real:
+            emb = _parse_embedding(c.get("embedding"))
+            sem = _cosine(qvec, emb) if emb else float(c.get("score") or 0.0)
         else:
-            sem = float(c.get("score") or 0.0)
+            sem = 0.0
         kw = 0.0
         if root_cause_category:
-            blob = f"{c.get('root_cause_category','')} {c.get('lesson_text','')}".lower()
+            blob = f"{c.get('root_cause_category','')} {c.get('lesson_text','')} {c.get('root_cause_details','')}".lower()
             if root_cause_category.lower() in blob:
-                kw = 0.25
-        score = sem * 0.75 + float(c.get("confidence") or 0.5) * 0.15 + kw + (0.05 if c.get("domain") == domain else 0)
+                kw += 0.25
+        if not qvec_real and qtokens:
+            blob = (
+                f"{c.get('lesson_text','')} {c.get('root_cause_details','')} "
+                f"{c.get('intervention','')} {c.get('root_cause_category','')}"
+            ).lower()
+            hits = sum(1 for t in qtokens if t in blob)
+            kw += 0.35 * (hits / len(qtokens))
+        recency = _recency_weight(c.get("ts"))
+        score = (
+            sem * 0.60
+            + recency * 0.15
+            + float(c.get("confidence") or 0.5) * 0.10
+            + kw
+            + (0.05 if c.get("domain") == domain else 0.0)
+        )
         scored.append((score, c))
     scored.sort(key=lambda x: -x[0])
-    out = [_row_to_public(c) for _, c in scored[:limit]]
+    out = []
+    for sc, c in scored[:limit]:
+        pub = _row_to_public(c)
+        pub["relevance"] = round(float(sc), 4)   # blended score, for downstream confidence
+        out.append(pub)
     if not out and candidates:
         out = [_row_to_public(c) for c in candidates[:limit]]
     return out

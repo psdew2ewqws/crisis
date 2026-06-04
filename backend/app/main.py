@@ -92,6 +92,21 @@ try:
 except Exception:
     pass
 
+# Scenario engine: crisis detection + prediction for a novel situation
+# POST /api/scenario/detect (NDJSON stream), POST /api/scenario/retain
+try:
+    from . import scenario
+    app.include_router(scenario.router)
+except Exception:
+    pass
+
+# Legal research agent (open scholarly + data APIs): POST /api/research/run (NDJSON)
+try:
+    from . import research_agent
+    app.include_router(research_agent.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():

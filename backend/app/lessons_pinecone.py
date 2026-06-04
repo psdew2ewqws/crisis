@@ -20,6 +20,7 @@ Failures degrade gracefully — ``lessons`` falls back to its JSON store.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from typing import Any, List, Optional
 
@@ -38,13 +39,14 @@ NAMESPACE = os.environ.get("PINECONE_NAMESPACE", "")
 _META_STR = [
     "kind", "domain", "root_cause_category", "root_cause_details", "intervention",
     "outcome", "lesson_text", "why_it_worked", "applicable_when", "source_case_id",
-    "ts", "meta_json",
+    "ts", "risk_source", "meta_json",
 ]
 _META_NUM = ["risk_before", "risk_after", "risk_delta", "confidence"]
 
 _pc: Any = None      # None=uninit, False=unavailable, else Pinecone client
 _index: Any = None   # cached Index handle
 _dim: Optional[int] = None  # cached index dimension
+_metric: Optional[str] = None  # cached index metric (must be 'cosine' for the pad)
 
 
 def available() -> bool:
@@ -69,7 +71,7 @@ def _client():
 
 def _get_index():
     """Return (index, dimension) or (None, None) on any failure."""
-    global _index, _dim
+    global _index, _dim, _metric
     if _index is not None:
         return _index, _dim
     pc = _client()
@@ -78,6 +80,7 @@ def _get_index():
     try:
         desc = pc.describe_index(INDEX_NAME)
         _dim = int(desc.dimension)
+        _metric = str(getattr(desc, "metric", "") or "").lower()
         _index = pc.Index(INDEX_NAME)
         return _index, _dim
     except Exception:
@@ -132,16 +135,32 @@ def _to_metadata(row: dict[str, Any]) -> dict[str, Any]:
     return md
 
 
+def _vector_id(row: dict[str, Any]) -> str:
+    """Deterministic id derived from source_case_id so re-ingesting a case
+    OVERWRITES its vector instead of duplicating the corpus on every backfill run.
+    Falls back to row['id'] only when no source id is present."""
+    src = str(row.get("source_case_id") or "").strip()
+    if src:
+        return "lesson_" + hashlib.sha256(src.encode("utf-8")).hexdigest()[:24]
+    return str(row.get("id"))
+
+
 def insert_lesson(row: dict[str, Any]) -> dict[str, Any]:
     idx, dim = _get_index()
     if idx is None:
         raise RuntimeError("Pinecone index unavailable")
+    # The 768->1024 zero-pad is cosine-EXACT only under a cosine index. Refuse to
+    # write into a non-cosine index rather than silently corrupting similarity.
+    if _metric and _metric != "cosine":
+        raise RuntimeError(
+            f"Pinecone index '{INDEX_NAME}' metric is '{_metric}', expected 'cosine'"
+        )
     emb = row.get("embedding")
     if not emb:
         raise ValueError("lesson row has no embedding to upsert")
     idx.upsert(
         vectors=[{
-            "id": str(row["id"]),
+            "id": _vector_id(row),
             "values": _fit(emb, dim),
             "metadata": _to_metadata(row),
         }],

@@ -19,7 +19,6 @@ import {
 } from '../lib/voc'
 import ProofPanel from './ProofPanel'
 import { useChartColors } from '../stores/themeStore'
-import { useT } from '../lib/i18n'
 
 const SEV: Record<string, string> = { alert: '#F04359', warn: '#FBBF24', calm: '#34D399', neutral: '#8B8D96' }
 const TAG: Record<string, string> = {
@@ -34,7 +33,6 @@ function nodeColor(t: string, sev: string) {
 }
 
 function GNode({ data }: NodeProps) {
-  const { t } = useT()
   const c = data.color as string
   return (
     <div className="rounded-lg border bg-card" style={{ borderColor: c, minWidth: data.w, boxShadow: `0 0 16px -7px ${c}` }}>
@@ -42,8 +40,8 @@ function GNode({ data }: NodeProps) {
       <div className="px-2.5 py-1.5" dir={isAr(data.label) ? 'rtl' : 'ltr'}>
         <div className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: c }} />
-          <span className="font-mono text-[8px] tracking-[0.12em] text-faint">{t(data.tag)}</span>
-          {data.value ? <span className="ms-auto font-mono text-[9px] text-muted">{data.value}</span> : null}
+          <span className="font-mono text-[8px] tracking-[0.12em] text-faint">{data.tag}</span>
+          {data.value ? <span className="ml-auto font-mono text-[9px] text-muted">{data.value}</span> : null}
         </div>
         <div className="mt-0.5 text-[11px] leading-tight text-txt" style={{ maxWidth: 200 }}>{data.label}</div>
       </div>
@@ -55,7 +53,6 @@ const nodeTypes = { g: GNode }
 const STAGES = ['connect', 'ingest', 'graph', 'rootcause', 'recommend']
 
 export default function LiveGraph() {
-  const { t } = useT()
   const cc = useChartColors() // theme-aware palette for the React Flow canvas
   const [graph, setGraph] = useState<Graph | null>(null)
   const [causes, setCauses] = useState<RootCause[]>([])
@@ -162,7 +159,7 @@ export default function LiveGraph() {
       {/* header */}
       <div className="flex items-center justify-between border-b border-border px-8 py-4">
         <div>
-          <h1 className="text-[22px] font-semibold tracking-tight text-txt">{t('Live Crisis Graph')}</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight text-txt">Live Crisis Graph</h1>
           <p className="mt-1.5 flex items-center gap-2.5 text-[13px]">
             <span
               className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
@@ -177,12 +174,12 @@ export default function LiveGraph() {
                   className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.ok ? 'bg-good' : 'bg-danger'}`}
                 />
               </span>
-              {health?.ok ? t('voc360 connected') : t('db offline')}
+              {health?.ok ? 'voc360 connected' : 'db offline'}
             </span>
             {graph && (
               <span className="text-faint">
-                {graph.stats.signals.toLocaleString()} {t('signals')} · {graph.stats.services} {t('services')} ·{' '}
-                {graph.stats.clusters} {t('root causes')}
+                {graph.stats.signals.toLocaleString()} signals · {graph.stats.services} services ·{' '}
+                {graph.stats.clusters} root causes
               </span>
             )}
           </p>
@@ -196,7 +193,7 @@ export default function LiveGraph() {
               dir={isAr(service) ? 'rtl' : 'ltr'}
               className="appearance-none rounded-lg border border-border bg-card py-2.5 pl-3 pr-8 text-[13px] text-txt transition-colors hover:bg-soft focus:outline-none"
             >
-              <option value="">{t('All services')}</option>
+              <option value="">All services</option>
               {services.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.id} ({s.signals})
@@ -211,7 +208,7 @@ export default function LiveGraph() {
             disabled={running}
           >
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 fill-white" />}
-            {running ? t('Running flow…') : t('Run Deer Graph Flow')}
+            {running ? 'Running flow…' : 'Run Deer Graph Flow'}
           </button>
         </div>
       </div>
@@ -223,7 +220,7 @@ export default function LiveGraph() {
           {!graph && !err && (
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2 text-[13px] text-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
-              {t('loading graph…')}
+              loading graph…
             </div>
           )}
           {graph && (
@@ -247,7 +244,7 @@ export default function LiveGraph() {
         <aside className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-l border-border bg-sidebar">
           {/* flow stages */}
           <div className="border-b border-border p-4">
-            <div className="mb-3 font-mono text-[10px] tracking-[0.14em] text-faint">{t('DEER GRAPH FLOW')}</div>
+            <div className="mb-3 font-mono text-[10px] tracking-[0.14em] text-faint">DEER GRAPH FLOW</div>
             <ol className="space-y-2">
               {STAGES.map((s) => {
                 const ev = flow[s]
@@ -259,7 +256,7 @@ export default function LiveGraph() {
                       : active ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue" />
                         : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-faint" />}
                     <div className="min-w-0">
-                      <div className={`text-[13px] capitalize ${done || active ? 'text-txt' : 'text-muted'}`}>{t(s)}</div>
+                      <div className={`text-[13px] capitalize ${done || active ? 'text-txt' : 'text-muted'}`}>{s}</div>
                       {ev && <div className="text-[11px] leading-tight text-muted" dir={isAr(ev.detail) ? 'rtl' : 'ltr'}>{ev.detail}</div>}
                     </div>
                   </li>
@@ -272,14 +269,14 @@ export default function LiveGraph() {
           {/* mesa simulation */}
           <div className="border-b border-border p-4">
             <div className="mb-3 flex items-center justify-between">
-              <span className="font-mono text-[10px] tracking-[0.14em] text-faint">{t('SIMULATION · MESA')}</span>
+              <span className="font-mono text-[10px] tracking-[0.14em] text-faint">SIMULATION · MESA</span>
               <button
                 onClick={runSim}
                 disabled={simBusy}
                 className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:bg-soft hover:text-txt disabled:opacity-50"
               >
                 {simBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FlaskConical className="h-3 w-3" />}
-                {simBusy ? t('running') : t('simulate intervention')}
+                {simBusy ? 'running' : 'simulate intervention'}
               </button>
             </div>
             {sim ? (
@@ -293,28 +290,25 @@ export default function LiveGraph() {
                   </LineChart>
                 </ResponsiveContainer>
                 <div className="mt-1 flex items-center justify-between font-mono text-[10px]">
-                  <span className="flex items-center gap-1.5 text-danger"><span className="h-[2px] w-3 bg-danger" />{t('no action')}</span>
-                  <span className="flex items-center gap-1.5 text-good"><span className="h-[2px] w-3 bg-good" />{t('intervention')}</span>
+                  <span className="flex items-center gap-1.5 text-danger"><span className="h-[2px] w-3 bg-danger" />no action</span>
+                  <span className="flex items-center gap-1.5 text-good"><span className="h-[2px] w-3 bg-good" />intervention</span>
                 </div>
                 <div className="mt-2 text-[11px] leading-snug text-muted">
-                  {t('Negativity peaks at {pct}%, settles in {ticks} ticks · critical services → {crit} · engine {eng}', {
-                    pct: ((sim.delta.peak_mean_negativity ?? 0) * 100).toFixed(0),
-                    ticks: sim.delta.ticks_to_settle ?? 0,
-                    crit: sim.delta.n_critical_final ?? 0,
-                    eng: sim.engine,
-                  })}
+                  Negativity peaks at <span className="text-txt">{((sim.delta.peak_mean_negativity ?? 0) * 100).toFixed(0)}%</span>, settles in{' '}
+                  <span className="text-txt">{sim.delta.ticks_to_settle ?? 0}</span> ticks · critical services →{' '}
+                  <span className="text-good">{sim.delta.n_critical_final ?? 0}</span> · engine <span className="text-blue">{sim.engine}</span>
                 </div>
               </>
             ) : (
               <p className="text-[11px] leading-snug text-muted">
-                {t('Run a Mesa agent-based simulation of how the root cause propagates across the service graph — with vs without intervention.')}
+                Run a Mesa agent-based simulation of how the root cause propagates across the service graph — with vs without intervention.
               </p>
             )}
           </div>
 
           {/* root causes */}
           <div className="p-4">
-            <div className="mb-3 font-mono text-[10px] tracking-[0.14em] text-faint">{t('RANKED ROOT CAUSES · RIL')}</div>
+            <div className="mb-3 font-mono text-[10px] tracking-[0.14em] text-faint">RANKED ROOT CAUSES · RIL</div>
             <div className="space-y-2">
               {(() => { const maxMembers = Math.max(1, ...causes.map((c) => c.members)); return causes.map((c) => {
                 const col = c.severity_avg >= 0.5 ? SEV.alert : c.severity_avg >= 0.3 ? SEV.warn : SEV.calm
@@ -333,7 +327,7 @@ export default function LiveGraph() {
               }) })()}
               {causes.length === 0 && (
                 <div className="text-[11px] text-muted">
-                  {graph || err ? t('No root causes yet') : t('loading…')}
+                  {graph || err ? 'No root causes yet' : 'loading…'}
                 </div>
               )}
             </div>

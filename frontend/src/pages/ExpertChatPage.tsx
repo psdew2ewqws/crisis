@@ -24,7 +24,30 @@ import {
   User,
   Loader2,
 } from 'lucide-react'
-import { useT } from '../lib/i18n'
+
+/* ─── palette (matches AEGIS tokens) ───────────────────────────────────────
+ * Neutral surfaces reference the same CSS variables the rest of the app uses
+ * (see index.css [data-theme]) so this page tracks light/dark automatically.
+ * Accents stay static; their tinted backgrounds/borders use alpha so they read
+ * correctly on both a dark and a white surface.                              */
+const C = {
+  bg: 'var(--color-bg)',
+  card: 'var(--color-card)',
+  cardhi: 'var(--color-cardhi)',
+  border: 'var(--color-border)',
+  soft: 'var(--color-soft)',
+  txt: 'var(--color-txt)',
+  muted: 'var(--color-muted)',
+  faint: 'var(--color-faint)',
+  blue: '#3B82F6',
+  danger: '#F04359',
+  good: '#34D399',
+  warn: '#FBBF24',
+  goodBg: 'rgba(52,211,153,0.12)',
+  goodBorder: 'rgba(52,211,153,0.35)',
+  warnBg: 'rgba(251,191,36,0.12)',
+  warnBorder: 'rgba(251,191,36,0.35)',
+} as const
 
 /* ─── API client ────────────────────────────────────────────────────────── */
 const BASE =
@@ -113,31 +136,30 @@ function fmtDate(iso: string) {
 /* ─── sub-components ────────────────────────────────────────────────────── */
 
 function ModelBadge({ available, model }: { available: boolean; model: string }) {
-  const { t } = useT()
   return (
     <span
-      className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.1em] bg-soft"
-      style={{ color: available ? '#34D399' : '#FBBF24' }}
+      className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.1em]"
+      style={{ background: C.soft, color: available ? C.good : C.warn }}
     >
       <span
         className="h-1.5 w-1.5 rounded-full"
-        style={{ background: available ? '#34D399' : '#FBBF24' }}
+        style={{ background: available ? C.good : C.warn }}
       />
-      {available ? model.toUpperCase() : t('MODEL OFFLINE')}
+      {available ? model.toUpperCase() : 'MODEL OFFLINE'}
     </span>
   )
 }
 
 function GuardrailBadge({ items }: { items: GuardrailApplied[] }) {
-  const { t } = useT()
   if (!items.length) return null
   return (
     <span
-      className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.1em] bg-green-100 dark:bg-[#1a2e1a] text-green-700 dark:text-good border border-green-300 dark:border-[#2a4a2a]"
+      className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.1em]"
+      style={{ background: C.goodBg, color: C.good, border: `1px solid ${C.goodBorder}` }}
       title={items.map((g) => g.question).join('\n')}
     >
       <ShieldCheck className="h-2.5 w-2.5" />
-      {items.length} {items.length > 1 ? t('GUARDRAILS APPLIED') : t('GUARDRAIL APPLIED')}
+      {items.length} GUARDRAIL{items.length > 1 ? 'S' : ''} APPLIED
     </span>
   )
 }
@@ -153,7 +175,6 @@ function CorrectionForm({
   onSave: (correct: string, topic: string) => void
   onCancel: () => void
 }) {
-  const { t } = useT()
   const [correct, setCorrect] = useState('')
   const [topic, setTopic] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -163,44 +184,51 @@ function CorrectionForm({
   }, [])
 
   return (
-    <div className="mt-2 rounded-lg border border-yellow-200 dark:border-yellow-900/40 bg-yellow-50 dark:bg-[#1e1a0e] p-3">
-      <div className="mb-2 flex items-center gap-1.5 font-mono text-[9px] tracking-[0.12em] text-yellow-700 dark:text-warn">
+    <div
+      className="mt-2 rounded-lg border p-3"
+      style={{ borderColor: C.warnBorder, background: C.warnBg }}
+    >
+      <div className="mb-2 flex items-center gap-1.5 font-mono text-[9px] tracking-[0.12em]" style={{ color: C.warn }}>
         <ShieldCheck className="h-3 w-3" />
-        {t('ADD CORRECTION AS GUARDRAIL')}
+        ADD CORRECTION AS GUARDRAIL
       </div>
-      <div className="mb-2 text-[11px] text-faint">
-        <span className="text-muted">{t('Question:')}</span>{' '}
+      <div className="mb-2 text-[11px]" style={{ color: C.faint }}>
+        <span style={{ color: C.muted }}>Question:</span>{' '}
         <span dir={isRtl(originalQuestion) ? 'rtl' : 'ltr'}>{originalQuestion}</span>
       </div>
       <textarea
         ref={textareaRef}
         value={correct}
         onChange={(e) => setCorrect(e.target.value)}
-        placeholder={t('Type the correct answer…')}
+        placeholder="Type the correct answer…"
         dir={isRtl(correct) ? 'rtl' : 'ltr'}
         rows={3}
-        className="w-full resize-none rounded border border-border bg-bg px-3 py-2 text-[13px] text-txt placeholder:text-faint focus:outline-none"
+        className="w-full resize-none rounded border px-3 py-2 text-[13px] text-txt placeholder:text-faint focus:outline-none"
+        style={{ background: C.bg, borderColor: C.border }}
       />
       <div className="mt-2 flex items-center gap-2">
         <input
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder={t('Topic tag (optional)')}
-          className="min-w-0 flex-1 rounded border border-border bg-bg px-2.5 py-1.5 text-[12px] text-txt placeholder:text-faint focus:outline-none"
+          placeholder="Topic tag (optional)"
+          className="min-w-0 flex-1 rounded border px-2.5 py-1.5 text-[12px] text-txt placeholder:text-faint focus:outline-none"
+          style={{ background: C.bg, borderColor: C.border }}
         />
         <button
           disabled={!correct.trim()}
           onClick={() => onSave(correct.trim(), topic.trim())}
-          className="flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-40 bg-warn text-black"
+          className="flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-40"
+          style={{ background: C.warn, color: '#0a0a0b' }}
         >
           <ShieldCheck className="h-3.5 w-3.5" />
-          {t('Save Guardrail')}
+          Save Guardrail
         </button>
         <button
           onClick={onCancel}
-          className="rounded px-3 py-1.5 text-[12px] transition-colors hover:text-txt text-muted"
+          className="rounded px-3 py-1.5 text-[12px] transition-colors hover:text-txt"
+          style={{ color: C.muted }}
         >
-          {t('Cancel')}
+          Cancel
         </button>
       </div>
     </div>
@@ -223,7 +251,6 @@ function MessageBubble({
   onSaveGuardrail: (msgId: string, correct: string, topic: string) => void
   onCancelCorrection: (id: string) => void
 }) {
-  const { t } = useT()
   const isUser = msg.role === 'user'
   const rtl = isRtl(msg.content)
 
@@ -231,25 +258,29 @@ function MessageBubble({
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* avatar */}
       <div
-        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border ${isUser ? 'bg-blue' : 'bg-soft'}`}
+        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+        style={{ background: isUser ? C.blue : C.soft, border: `1px solid ${C.border}` }}
       >
         {isUser ? (
           <User className="h-3.5 w-3.5 text-white" />
         ) : (
-          <Bot className="h-3.5 w-3.5 text-good" />
+          <Bot className="h-3.5 w-3.5" style={{ color: C.good }} />
         )}
       </div>
 
       <div className={`flex min-w-0 max-w-[78%] flex-col ${isUser ? 'items-end' : 'items-start'}`}>
         {/* bubble */}
         <div
-          className="rounded-2xl px-4 py-2.5 text-[13.5px] leading-relaxed text-txt whitespace-pre-wrap break-words"
+          className="rounded-2xl px-4 py-2.5 text-[13.5px] leading-relaxed"
           dir={rtl ? 'rtl' : 'ltr'}
           style={{
-            background: isUser ? '#3B82F6' : 'var(--color-card)',
-            border: isUser ? 'none' : '1px solid var(--color-border)',
+            background: isUser ? C.blue : C.card,
+            color: isUser ? '#FFFFFF' : C.txt,
+            border: isUser ? 'none' : `1px solid ${C.border}`,
             borderTopLeftRadius: isUser ? undefined : 4,
             borderTopRightRadius: isUser ? 4 : undefined,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
           }}
         >
           {msg.content}
@@ -262,9 +293,12 @@ function MessageBubble({
               <GuardrailBadge items={msg.guardrails_applied} />
             )}
             {msg.model_ok === false && (
-              <span className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px] bg-soft text-warn">
+              <span
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px]"
+                style={{ background: C.soft, color: C.warn }}
+              >
                 <AlertTriangle className="h-2.5 w-2.5" />
-                {t('MODEL OFFLINE')}
+                MODEL OFFLINE
               </span>
             )}
 
@@ -273,26 +307,31 @@ function MessageBubble({
               <>
                 <button
                   onClick={() => onApproveAsGuardrail(msg.id)}
-                  className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors bg-green-100 dark:bg-[#0e1a0e] text-green-700 dark:text-good border border-green-300 dark:border-[#2a4a2a]"
-                  title={t('Approve this answer as a guardrail for the agent swarm')}
+                  className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+                  style={{ color: C.good, border: `1px solid ${C.goodBorder}`, background: C.goodBg }}
+                  title="Approve this answer as a guardrail for the agent swarm"
                 >
                   <ShieldCheck className="h-3 w-3" />
-                  {t('Approve as Guardrail')}
+                  Approve as Guardrail
                 </button>
                 <button
                   onClick={() => onCorrect(msg.id)}
-                  className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors bg-yellow-50 dark:bg-[#1e1a0e] text-yellow-700 dark:text-warn border border-yellow-200 dark:border-[#3a2e0a]"
-                  title={t('This answer is wrong — correct it')}
+                  className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors"
+                  style={{ color: C.warn, border: `1px solid ${C.warnBorder}`, background: C.warnBg }}
+                  title="This answer is wrong — correct it"
                 >
                   <XCircle className="h-3 w-3" />
-                  {t('Correct this')}
+                  Correct this
                 </button>
               </>
             )}
             {msg.corrected && (
-              <span className="flex items-center gap-1 text-[11px] text-good">
+              <span
+                className="flex items-center gap-1 text-[11px]"
+                style={{ color: C.good }}
+              >
                 <ShieldCheck className="h-3 w-3" />
-                {msg.approvedGuardrail ? t('Approved as guardrail') : t('Correction saved')}
+                {msg.approvedGuardrail ? 'Approved as guardrail' : 'Correction saved'}
               </span>
             )}
           </div>
@@ -324,38 +363,41 @@ function GuardrailsPanel({
   onDelete: (id: string) => void
   onRefresh: () => void
 }) {
-  const { t } = useT()
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border px-5 py-3">
+    <div className="flex flex-col" style={{ height: '100%' }}>
+      <div className="flex items-center justify-between border-b px-5 py-3" style={{ borderColor: C.border }}>
         <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-good" />
-          <span className="text-[13px] font-semibold text-txt">{t('Saved Guardrails')}</span>
-          <span className="rounded-full px-2 py-0.5 font-mono text-[10px] bg-soft text-muted">
-            {t('{active} active / {total} total', { active: guardrails.filter((g) => g.active).length, total: guardrails.length })}
+          <ShieldCheck className="h-4 w-4" style={{ color: C.good }} />
+          <span className="text-[13px] font-semibold text-txt">Saved Guardrails</span>
+          <span
+            className="rounded-full px-2 py-0.5 font-mono text-[10px]"
+            style={{ background: C.soft, color: C.muted }}
+          >
+            {guardrails.filter((g) => g.active).length} active / {guardrails.length} total
           </span>
         </div>
         <button
           onClick={onRefresh}
-          className="text-[11px] transition-colors hover:text-txt text-faint"
+          className="text-[11px] transition-colors hover:text-txt"
+          style={{ color: C.faint }}
         >
-          {t('Refresh')}
+          Refresh
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {guardrails.length === 0 ? (
-          <p className="py-8 text-center text-[13px] text-faint">
-            {t('No guardrails saved yet. Approve a correct answer or correct a wrong one to add guardrails.')}
+          <p className="py-8 text-center text-[13px]" style={{ color: C.faint }}>
+            No guardrails saved yet. Approve a correct answer or correct a wrong one to add guardrails.
           </p>
         ) : (
           guardrails.map((g) => (
             <div
               key={g.id}
-              className="rounded-xl border p-4 transition-opacity"
+              className="rounded-xl border p-4"
               style={{
-                borderColor: g.active ? 'rgba(52,211,153,0.25)' : 'var(--color-border)',
-                background: g.active ? 'var(--color-bg)' : 'var(--color-card)',
+                borderColor: g.active ? C.goodBorder : C.border,
+                background: g.active ? C.goodBg : C.card,
                 opacity: g.active ? 1 : 0.55,
               }}
             >
@@ -363,32 +405,46 @@ function GuardrailsPanel({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2 mb-1">
                     {g.topic && (
-                      <span className="rounded px-1.5 py-0.5 font-mono text-[9px] bg-soft text-muted">
+                      <span
+                        className="rounded px-1.5 py-0.5 font-mono text-[9px]"
+                        style={{ background: C.soft, color: C.muted }}
+                      >
                         {g.topic}
                       </span>
                     )}
-                    <span className="font-mono text-[9px] text-faint">
+                    <span className="font-mono text-[9px]" style={{ color: C.faint }}>
                       {fmtDate(g.created_at)}
                     </span>
                   </div>
-                  <p className="text-[12.5px] font-medium text-txt" dir={isRtl(g.question) ? 'rtl' : 'ltr'}>
-                    {t('Question:')} {g.question}
+                  <p
+                    className="text-[12.5px] font-medium text-txt"
+                    dir={isRtl(g.question) ? 'rtl' : 'ltr'}
+                  >
+                    Q: {g.question}
                   </p>
                   {g.wrong_answer && (
-                    <p className="mt-1 text-[11.5px] line-through text-danger" dir={isRtl(g.wrong_answer) ? 'rtl' : 'ltr'}>
+                    <p
+                      className="mt-1 text-[11.5px] line-through"
+                      style={{ color: C.danger }}
+                      dir={isRtl(g.wrong_answer) ? 'rtl' : 'ltr'}
+                    >
                       ✗ {g.wrong_answer.slice(0, 120)}{g.wrong_answer.length > 120 ? '…' : ''}
                     </p>
                   )}
-                  <p className="mt-1 text-[12px] text-good" dir={isRtl(g.correct_answer) ? 'rtl' : 'ltr'}>
+                  <p
+                    className="mt-1 text-[12px]"
+                    style={{ color: C.good }}
+                    dir={isRtl(g.correct_answer) ? 'rtl' : 'ltr'}
+                  >
                     ✓ {g.correct_answer}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <button
                     onClick={() => onToggle(g.id, !g.active)}
-                    title={g.active ? t('Disable') : t('Enable')}
+                    title={g.active ? 'Disable' : 'Enable'}
+                    style={{ color: g.active ? C.good : C.faint }}
                     className="transition-colors hover:opacity-80"
-                    style={{ color: g.active ? '#34D399' : '#62646D' }}
                   >
                     {g.active ? (
                       <ToggleRight className="h-4 w-4" />
@@ -398,8 +454,9 @@ function GuardrailsPanel({
                   </button>
                   <button
                     onClick={() => onDelete(g.id)}
-                    title={t('Delete')}
-                    className="transition-colors hover:opacity-80 text-faint"
+                    title="Delete"
+                    className="transition-colors hover:opacity-80"
+                    style={{ color: C.faint }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -415,7 +472,6 @@ function GuardrailsPanel({
 
 /* ─── main page ─────────────────────────────────────────────────────────── */
 export default function ExpertChatPage() {
-  const { t } = useT()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -529,9 +585,9 @@ export default function ExpertChatPage() {
           ),
         )
         await loadGuardrails()
-        showToast(t('Answer approved as guardrail ✓'))
+        showToast('Answer approved as guardrail ✓')
       } else {
-        showToast(t('Failed to save guardrail'))
+        showToast('Failed to save guardrail')
       }
     },
     [messages, loadGuardrails],
@@ -565,9 +621,9 @@ export default function ExpertChatPage() {
           prev.map((m) => (m.id === msgId ? { ...m, wrong: false, corrected: true } : m)),
         )
         await loadGuardrails()
-        showToast(t('Guardrail saved ✓'))
+        showToast('Guardrail saved ✓')
       } else {
-        showToast(t('Failed to save guardrail'))
+        showToast('Failed to save guardrail')
       }
     },
     [messages, loadGuardrails],
@@ -589,25 +645,31 @@ export default function ExpertChatPage() {
     async (id: string) => {
       await apiFetch(`/api/expert/guardrails/${id}`, { method: 'DELETE' })
       await loadGuardrails()
-      showToast(t('Guardrail deleted'))
+      showToast('Guardrail deleted')
     },
     [loadGuardrails],
   )
 
   return (
-    <div className="flex h-full overflow-hidden bg-bg">
+    <div className="flex h-full overflow-hidden" style={{ background: C.bg }}>
       {/* ── chat column ─────────────────────────────────────────────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* header */}
-        <div className="flex items-center justify-between border-b border-border bg-card px-6 py-3.5">
+        <div
+          className="flex items-center justify-between border-b px-6 py-3.5"
+          style={{ borderColor: C.border, background: C.card }}
+        >
           <div className="flex items-center gap-3">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-green-100 dark:bg-[#1a2e1a] border border-green-300 dark:border-[#2a4a2a]">
-              <Bot className="h-4 w-4 text-good" />
+            <div
+              className="grid h-8 w-8 place-items-center rounded-lg"
+              style={{ background: C.goodBg, border: `1px solid ${C.goodBorder}` }}
+            >
+              <Bot className="h-4 w-4" style={{ color: C.good }} />
             </div>
             <div>
-              <div className="text-[14px] font-semibold text-txt">{t('Expert Chat')}</div>
-              <div className="text-[11px] text-faint">
-                {t('Gemma · Domain intelligence with guardrails')}
+              <div className="text-[14px] font-semibold text-txt">Expert Chat</div>
+              <div className="text-[11px]" style={{ color: C.faint }}>
+                Gemma · Domain intelligence with guardrails
               </div>
             </div>
             {health && (
@@ -616,16 +678,19 @@ export default function ExpertChatPage() {
           </div>
           <button
             onClick={() => setShowGuardrails((s) => !s)}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] transition-colors border"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] transition-colors"
             style={{
-              background: showGuardrails ? 'var(--color-soft)' : 'var(--color-soft)',
-              color: showGuardrails ? '#34D399' : '#8B8D96',
-              borderColor: showGuardrails ? '#2a4a2a' : 'var(--color-border)',
+              background: showGuardrails ? C.goodBg : C.soft,
+              color: showGuardrails ? C.good : C.muted,
+              border: `1px solid ${showGuardrails ? C.goodBorder : C.border}`,
             }}
           >
             <ShieldCheck className="h-3.5 w-3.5" />
-            {t('Guardrails')}
-            <span className="rounded-full px-1.5 py-0.5 font-mono text-[9px] bg-card text-muted">
+            Guardrails
+            <span
+              className="rounded-full px-1.5 py-0.5 font-mono text-[9px]"
+              style={{ background: C.card, color: C.muted }}
+            >
               {guardrails.filter((g) => g.active).length}
             </span>
             {showGuardrails ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -634,9 +699,16 @@ export default function ExpertChatPage() {
 
         {/* model-offline banner */}
         {health && !health.model_available && (
-          <div className="flex items-center gap-2 px-6 py-2.5 text-[12.5px] bg-yellow-50 dark:bg-[#1e1a0e] border-b border-yellow-200 dark:border-[#3a2e0a] text-yellow-700 dark:text-warn">
+          <div
+            className="flex items-center gap-2 px-6 py-2.5 text-[12.5px]"
+            style={{ background: C.warnBg, borderBottom: `1px solid ${C.warnBorder}`, color: C.warn }}
+          >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            {t('Gemma model offline. Start Ollama and run {cmd} to enable AI responses. Guardrails still save normally.', { cmd: `ollama pull ${health.model}` })}
+            Gemma model offline. Start Ollama and run{' '}
+            <code className="rounded px-1 font-mono text-[11px]" style={{ background: C.soft }}>
+              ollama pull {health.model}
+            </code>{' '}
+            to enable AI responses. Guardrails still save normally.
           </div>
         )}
 
@@ -644,21 +716,23 @@ export default function ExpertChatPage() {
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <MessageCircle className="mb-4 h-10 w-10 text-faint" />
-              <p className="text-[14px] font-medium text-txt">{t('Ask a domain question')}</p>
-              <p className="mt-1 max-w-sm text-[12.5px] text-muted">
-                {t('Ask about root causes, signals, forecasts, or any voc360 insight. If the answer is wrong, correct it — your correction becomes a guardrail for future answers.')}
+              <MessageCircle className="mb-4 h-10 w-10" style={{ color: C.faint }} />
+              <p className="text-[14px] font-medium text-txt">Ask a domain question</p>
+              <p className="mt-1 max-w-sm text-[12.5px]" style={{ color: C.muted }}>
+                Ask about root causes, signals, forecasts, or any voc360 insight. If the answer is
+                wrong, correct it — your correction becomes a guardrail for future answers.
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-2">
                 {[
-                  t('What are the top root-cause clusters right now?'),
-                  t('Which service is forecast to escalate?'),
-                  t('Explain the why-chain for urgent service fees'),
+                  'What are the top root-cause clusters right now?',
+                  'Which service is forecast to escalate?',
+                  'Explain the why-chain for urgent service fees',
                 ].map((q) => (
                   <button
                     key={q}
                     onClick={() => setInput(q)}
-                    className="rounded-full border border-border px-3 py-1.5 text-[12px] transition-colors hover:text-txt text-muted bg-card"
+                    className="rounded-full border px-3 py-1.5 text-[12px] transition-colors hover:text-txt"
+                    style={{ borderColor: C.border, color: C.muted, background: C.card }}
                   >
                     {q}
                   </button>
@@ -681,12 +755,18 @@ export default function ExpertChatPage() {
 
           {loading && (
             <div className="flex gap-3">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-soft border border-border">
-                <Bot className="h-3.5 w-3.5 text-good" />
+              <div
+                className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                style={{ background: C.soft, border: `1px solid ${C.border}` }}
+              >
+                <Bot className="h-3.5 w-3.5" style={{ color: C.good }} />
               </div>
-              <div className="flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[13px] bg-card border border-border text-muted" style={{ borderTopLeftRadius: 4 }}>
+              <div
+                className="flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[13px]"
+                style={{ background: C.card, border: `1px solid ${C.border}`, color: C.muted, borderTopLeftRadius: 4 }}
+              >
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {t('Thinking…')}
+                Thinking…
               </div>
             </div>
           )}
@@ -695,15 +775,21 @@ export default function ExpertChatPage() {
         </div>
 
         {/* input bar */}
-        <div className="border-t border-border bg-card px-6 py-4">
-          <div className="flex items-end gap-3 rounded-xl border border-border bg-bg px-4 py-3">
+        <div
+          className="border-t px-6 py-4"
+          style={{ borderColor: C.border, background: C.card }}
+        >
+          <div
+            className="flex items-end gap-3 rounded-xl border px-4 py-3"
+            style={{ borderColor: C.border, background: C.bg }}
+          >
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               dir={isRtl(input) ? 'rtl' : 'ltr'}
-              placeholder={t('Ask a domain question… (Enter to send, Shift+Enter for newline)')}
+              placeholder="Ask a domain question… (Enter to send, Shift+Enter for newline)"
               rows={1}
               className="min-w-0 flex-1 resize-none bg-transparent text-[13.5px] text-txt placeholder:text-faint focus:outline-none"
               style={{ maxHeight: 120, overflowY: 'auto' }}
@@ -711,7 +797,8 @@ export default function ExpertChatPage() {
             <button
               onClick={() => void sendMessage()}
               disabled={!input.trim() || loading}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-40 bg-blue"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-40"
+              style={{ background: C.blue }}
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-white" />
@@ -720,15 +807,19 @@ export default function ExpertChatPage() {
               )}
             </button>
           </div>
-          <p className="mt-1.5 text-[10.5px] text-faint">
-            {t('Mark wrong answers with "Correct this" to add guardrails · Guardrails are saved to {file}', { file: 'guardrails.json' })}
+          <p className="mt-1.5 text-[10.5px]" style={{ color: C.faint }}>
+            Mark wrong answers with "Correct this" to add guardrails · Guardrails are saved to{' '}
+            <code className="font-mono">guardrails.json</code>
           </p>
         </div>
       </div>
 
       {/* ── guardrails panel ─────────────────────────────────────────────── */}
       {showGuardrails && (
-        <div className="w-[400px] shrink-0 border-l border-border bg-card">
+        <div
+          className="w-[400px] shrink-0 border-l"
+          style={{ borderColor: C.border, background: C.card }}
+        >
           <GuardrailsPanel
             guardrails={guardrails}
             onToggle={handleToggleGuardrail}
@@ -740,7 +831,10 @@ export default function ExpertChatPage() {
 
       {/* toast */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-xl px-5 py-2.5 text-[13px] font-medium shadow-xl bg-good text-black" style={{ zIndex: 100 }}>
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-xl px-5 py-2.5 text-[13px] font-medium shadow-xl"
+          style={{ background: C.good, color: '#0a0a0b', zIndex: 100 }}
+        >
           {toast}
         </div>
       )}

@@ -2,7 +2,6 @@ import { Zap, Loader2, ArrowRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'motion/react'
 import KpiCard from '../components/KpiCard'
-import SignalVolume from '../components/SignalVolume'
 import DataTable from '../components/DataTable'
 import { kpis } from '../lib/data'
 import { useAppStore } from '../stores/appStore'
@@ -64,11 +63,6 @@ export default function Dashboard() {
             <KpiCard kpi={k} />
           </motion.div>
         ))}
-      </div>
-
-      {/* signal volume */}
-      <div className="mt-4">
-        <SignalVolume />
       </div>
 
       {/* table */}

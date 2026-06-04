@@ -1,21 +1,20 @@
-import { Suspense, lazy, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Zap, Loader2, X, Check } from 'lucide-react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Zap, Loader2, X, Check, BellRing, Send } from 'lucide-react'
+import { motion } from 'motion/react'
 import Sidebar, { type CaseRow } from './components/Sidebar'
 import Topbar from './components/Topbar'
 import KpiCard from './components/KpiCard'
-import SignalVolume from './components/SignalVolume'
+import PopulationClock from './components/PopulationClock'
+import JordanMap from './components/JordanMap'
 import DataTable from './components/DataTable'
 import LiveGraph from './components/LiveGraph'
 import Onboarding from './components/Onboarding'
 import SettingsDrawer from './components/SettingsDrawer'
 import HelpDrawer from './components/HelpDrawer'
 import ErrorBoundary from './components/ErrorBoundary'
-import LangToggle from './components/LangToggle'
-import { useT } from './lib/i18n'
 import { kpis as fallbackKpis, type Kpi, type Tone } from './lib/data'
 import { getKpis, getCases, runFlow, type CaseServiceRow, type FlowEvent } from './lib/voc'
 
-const SignalsPage = lazy(() => import('./pages/SignalsPage'))
 const RootCausePage = lazy(() => import('./pages/RootCausePage'))
 const SolutionsPage = lazy(() => import('./pages/SolutionsPage'))
 const SimulationPage = lazy(() => import('./pages/SimulationPage'))
@@ -73,7 +72,6 @@ const idleRun: RunState = {
 }
 
 function RunProgress({ run, onClose }: { run: RunState; onClose: () => void }) {
-  const { t } = useT()
   if (!run.active && !run.recommendation && !run.error) return null
   const finished = !!run.recommendation || !!run.error
   return (
@@ -83,19 +81,19 @@ function RunProgress({ run, onClose }: { run: RunState; onClose: () => void }) {
           <div className="flex items-center gap-2.5">
             <Zap className="h-4 w-4 fill-blue text-blue" />
             <div className="text-[14px] font-semibold text-txt">
-              {t('Deer Graph Analysis')}
+              Deer Graph Analysis
               <span
-                className="ms-2 font-mono text-[12px] font-normal text-muted"
+                className="ml-2 font-mono text-[12px] font-normal text-muted"
                 dir={/[؀-ۿ]/.test(run.service ?? '') ? 'rtl' : 'ltr'}
               >
-                {run.service ?? t('All services')}
+                {run.service ?? 'All services'}
               </span>
             </div>
           </div>
           <button
             onClick={onClose}
             disabled={!finished}
-            title={finished ? t('Close') : t('Running…')}
+            title={finished ? 'Close' : 'Running…'}
             className="rounded-lg p-1.5 text-muted transition-colors hover:bg-soft hover:text-txt disabled:cursor-not-allowed disabled:opacity-40"
           >
             <X className="h-4 w-4" />
@@ -124,13 +122,13 @@ function RunProgress({ run, onClose }: { run: RunState; onClose: () => void }) {
                         state === 'idle' ? 'text-faint' : 'font-medium text-txt'
                       }`}
                     >
-                      {t(st.label)}
+                      {st.label}
                     </div>
                     <div
                       className="truncate text-[12px] text-muted"
                       dir={/[؀-ۿ]/.test(detail ?? '') ? 'rtl' : 'ltr'}
                     >
-                      {detail ?? t(st.hint)}
+                      {detail ?? st.hint}
                     </div>
                   </div>
                 </li>
@@ -141,7 +139,7 @@ function RunProgress({ run, onClose }: { run: RunState; onClose: () => void }) {
           {run.recommendation && (
             <div className="mt-4 rounded-lg border border-blue/40 bg-blue/5 px-4 py-3">
               <div className="mb-1 text-[11px] font-semibold tracking-[0.12em] text-blue">
-                {t('RECOMMENDATION')}
+                RECOMMENDATION
               </div>
               <p
                 className="text-[13.5px] leading-relaxed text-txt"
@@ -164,7 +162,7 @@ function RunProgress({ run, onClose }: { run: RunState; onClose: () => void }) {
               onClick={onClose}
               className="rounded-lg bg-blue px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#2f76e8]"
             >
-              {t('Done')}
+              Done
             </button>
           </div>
         )}
@@ -182,47 +180,165 @@ function DashboardView({
   onRun: () => void
   query: string
 }) {
-  const { t } = useT()
   const [kpis, setKpis] = useState<Kpi[] | null>(null)
+  const [alertOpen, setAlertOpen] = useState(false)
+  const [alertDraft, setAlertDraft] = useState('')
+  const [activeAlert, setActiveAlert] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     let alive = true
     getKpis().then((r) => {
       if (alive) setKpis(r.kpis && r.kpis.length ? (r.kpis as unknown as Kpi[]) : fallbackKpis)
     })
-    return () => {
-      alive = false
-    }
+    return () => { alive = false }
   }, [])
+
+  const openAlert = () => {
+    setAlertOpen(true)
+    setTimeout(() => textareaRef.current?.focus(), 50)
+  }
+
+  const activateAlert = () => {
+    const msg = alertDraft.trim()
+    if (!msg) return
+    setActiveAlert(msg)
+    setAlertDraft('')
+    setAlertOpen(false)
+  }
+
+  const dismissAlert = () => setActiveAlert(null)
 
   const cards = kpis ?? fallbackKpis
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-[1340px] px-8 py-7">
+        {/* header */}
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-[28px] font-semibold tracking-tight text-txt">{t('Dashboard')}</h1>
+            <h1 className="text-[28px] font-semibold tracking-tight text-txt">Dashboard</h1>
             <p className="mt-1.5 text-[14px] text-muted">
-              {t('Live voc360')} ·{' '}
+              Live voc360 ·{' '}
               <span className="font-medium text-txt" dir={/[؀-ۿ]/.test(service ?? '') ? 'rtl' : 'ltr'}>
-                {service ?? t('All services')}
+                {service ?? 'All services'}
               </span>
             </p>
           </div>
-          <button
-            onClick={onRun}
-            className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8]"
-          >
-            <Zap className="h-4 w-4 fill-white" />
-            {t('Run Analysis')}
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={alertOpen ? () => setAlertOpen(false) : openAlert}
+              className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-[13.5px] font-semibold transition-colors ${
+                alertOpen
+                  ? 'border-warn/50 bg-warn/10 text-warn hover:bg-warn/15'
+                  : activeAlert
+                  ? 'border-danger/50 bg-danger/10 text-danger hover:bg-danger/15'
+                  : 'border-border bg-card text-muted hover:border-warn/50 hover:bg-warn/10 hover:text-warn'
+              }`}
+            >
+              <BellRing className={`h-4 w-4 ${alertOpen || activeAlert ? '' : ''}`} />
+              {activeAlert && !alertOpen ? 'Alert Active' : 'Alert'}
+            </button>
+            <button
+              onClick={onRun}
+              className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8]"
+            >
+              <Zap className="h-4 w-4 fill-white" />
+              Run Analysis
+            </button>
+          </div>
         </div>
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
+        {/* alert compose panel */}
+        {alertOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="relative mt-4 overflow-hidden rounded-xl border border-warn/40 bg-card"
+          >
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-warn/70 to-transparent" />
+            <div className="px-5 pt-4 pb-3">
+              <div className="flex items-center gap-2 text-[13px] font-semibold text-warn">
+                <BellRing className="h-4 w-4" />
+                Compose Alert
+              </div>
+              <textarea
+                ref={textareaRef}
+                value={alertDraft}
+                onChange={(e) => setAlertDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) activateAlert()
+                  if (e.key === 'Escape') setAlertOpen(false)
+                }}
+                placeholder="Type your alert message…"
+                rows={3}
+                className="mt-3 w-full resize-none rounded-lg border border-border bg-soft px-3.5 py-2.5 text-[13.5px] text-txt placeholder:text-faint focus:border-warn/60 focus:outline-none focus:ring-1 focus:ring-warn/30"
+              />
+              <div className="mt-2.5 flex items-center justify-between">
+                <span className="text-[12px] text-faint">
+                  {alertDraft.length > 0 ? `${alertDraft.length} chars` : 'Cmd+Enter to activate'}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setAlertOpen(false)}
+                    className="rounded-lg px-3 py-1.5 text-[13px] text-muted transition-colors hover:bg-soft hover:text-txt"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={activateAlert}
+                    disabled={!alertDraft.trim()}
+                    className="flex items-center gap-1.5 rounded-lg bg-warn px-4 py-1.5 text-[13px] font-semibold text-black transition-colors hover:bg-warn/90 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    Activate
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* active alert banner */}
+        {activeAlert && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="relative mt-4 flex items-start justify-between gap-4 overflow-hidden rounded-xl border border-danger/40 bg-danger/5 px-5 py-4"
+          >
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-danger/70 to-transparent" />
+            <div className="flex items-start gap-3">
+              <span className="relative mt-0.5 flex h-2.5 w-2.5 shrink-0">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger" />
+              </span>
+              <div>
+                <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-danger">
+                  Active Alert
+                </div>
+                <p className="mt-0.5 text-[13.5px] leading-relaxed text-txt">{activeAlert}</p>
+              </div>
+            </div>
+            <button
+              onClick={dismissAlert}
+              className="shrink-0 rounded-lg p-1 text-muted transition-colors hover:bg-soft hover:text-txt"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </motion.div>
+        )}
+
+        <div className="mt-6">
+          <PopulationClock />
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {cards.map((k, i) => (
             <KpiCard key={k.title} kpi={k} index={i} />
           ))}
         </div>
-        <div className="mt-4"><SignalVolume service={service} /></div>
+        <div className="mt-4"><JordanMap /></div>
         <div className="mt-4"><DataTable onRun={onRun} service={service} query={query} /></div>
       </div>
     </div>
@@ -230,7 +346,6 @@ function DashboardView({
 }
 
 export default function App() {
-  const { t } = useT()
   const [onboarded, setOnboarded] = useState(
     () => typeof localStorage !== 'undefined' && localStorage.getItem('aegis-onboarded') !== null,
   )
@@ -286,7 +401,7 @@ export default function App() {
       setRun((prev) => ({
         ...prev,
         active: false,
-        error: e instanceof Error ? e.message : t('Analysis failed to stream.'),
+        error: e instanceof Error ? e.message : 'Analysis failed to stream.',
       }))
     }
   }
@@ -299,22 +414,18 @@ export default function App() {
 
   if (!onboarded) {
     return (
-      <>
-        <Onboarding
-          onDone={() => {
-            localStorage.setItem('aegis-onboarded', '1')
-            setOnboarded(true)
-          }}
-        />
-        <LangToggle />
-      </>
+      <Onboarding
+        onDone={() => {
+          localStorage.setItem('aegis-onboarded', '1')
+          setOnboarded(true)
+        }}
+      />
     )
   }
 
   let content: ReactNode
   switch (view) {
     case 'Incident Graph': content = <LiveGraph />; break
-    case 'Signals': content = <SignalsPage />; break
     case 'Root Cause': content = <RootCausePage />; break
     case 'Solutions': content = <SolutionsPage />; break
     case 'Simulation': content = <SimulationPage />; break
@@ -353,7 +464,6 @@ export default function App() {
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
       <RunProgress run={run} onClose={() => setRun(idleRun)} />
-      <LangToggle />
     </div>
   )
 }

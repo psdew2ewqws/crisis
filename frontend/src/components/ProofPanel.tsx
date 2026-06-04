@@ -7,7 +7,6 @@ import {
   MessagesSquare, Brain, Layers, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { getProof, reportUrl, streamDebate, type ProofBundle, type DebateEvent } from '../lib/voc'
-import { useT } from '../lib/i18n'
 
 // agent persona colours for the debate stream
 const ROLE_COLOR: Record<string, string> = {
@@ -40,7 +39,6 @@ export default function ProofPanel({
   query: { type: 'cluster' | 'service' | 'all'; key: string }
   onBack: () => void
 }) {
-  const { t } = useT()
   const [proof, setProof] = useState<ProofBundle | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(true)
@@ -107,9 +105,9 @@ export default function ProofPanel({
           className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:bg-soft hover:text-txt"
         >
           <ArrowLeft className="h-3 w-3" />
-          {t('back')}
+          رجوع
         </button>
-        <span className="font-mono text-[10px] tracking-[0.18em] text-faint">{t('PROOF')}</span>
+        <span className="font-mono text-[10px] tracking-[0.18em] text-faint">PROOF</span>
         <button
           onClick={onBack}
           aria-label="close"
@@ -122,7 +120,7 @@ export default function ProofPanel({
       {busy && (
         <div className="flex items-center gap-2 p-6 text-[13px] text-muted">
           <Loader2 className="h-4 w-4 animate-spin text-blue" />
-          {t('preparing proof…')}
+          جارٍ تجهيز الإثبات…
         </div>
       )}
       {err && !busy && (
@@ -137,7 +135,7 @@ export default function ProofPanel({
           {proof.plain && (
             <div className="border-b border-border bg-blue/5 p-4">
               <div className="mb-1.5 flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-blue">
-                <Layers className="h-3 w-3" /> {t('IN PLAIN TERMS')}
+                <Layers className="h-3 w-3" /> باختصار · IN PLAIN TERMS
               </div>
               <p dir="rtl" className="text-[13.5px] leading-[1.9] text-txt">
                 {proof.plain}
@@ -212,21 +210,21 @@ export default function ProofPanel({
           </div>
 
           {/* agent debate — LightMem-augmented swarm arguing over the data */}
-          <Section label={t('AGENT DEBATE')}>
+          <Section label="نقاش الوكلاء · AGENT DEBATE">
             {!turns.length && !debating && (
               <button
                 onClick={runDebate}
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue/40 bg-blue/10 px-4 py-2.5 text-[13px] font-semibold text-blue transition-colors hover:bg-blue/20"
               >
                 <MessagesSquare className="h-4 w-4" />
-                {t('Run agent debate on this issue')}
+                شغّل نقاش الوكلاء على هذه القضية
               </button>
             )}
 
             {dossier && (
               <div className="mb-3">
                 <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-faint">
-                  <Layers className="h-3 w-3" /> {t('LightMem memory')} · {dossier.memory?.length ?? 0} {t('axes')}
+                  <Layers className="h-3 w-3" /> ذاكرة LightMem · {dossier.memory?.length ?? 0} محاور
                   <span className="ml-auto font-mono">{dossier.model ? dossier.model : 'grounded'}</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -268,14 +266,14 @@ export default function ProofPanel({
               })}
               {debating && (
                 <div className="flex items-center gap-2 py-1 text-[11px] text-muted">
-                  <Loader2 className="h-3 w-3 animate-spin" /> {t('agents are debating…')}
+                  <Loader2 className="h-3 w-3 animate-spin" /> الوكلاء يتناقشون…
                 </div>
               )}
             </div>
 
             {turns.length > 0 && !debating && (
               <button onClick={runDebate} className="mt-2 text-[11px] text-blue hover:underline">
-                {t('Re-run debate')}
+                إعادة النقاش
               </button>
             )}
           </Section>
@@ -287,13 +285,13 @@ export default function ProofPanel({
             className="flex w-full items-center justify-center gap-2 border-b border-border bg-card/40 px-4 py-2.5 text-[12px] font-medium text-muted transition-colors hover:bg-soft hover:text-txt"
           >
             {showTech ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            {showTech ? t('Hide technical details') : t('Show technical details')}
+            {showTech ? 'إخفاء التفاصيل التقنية' : 'عرض التفاصيل التقنية (السلسلة السببية والأدلة)'}
           </button>
 
           {showTech && (
           <>
           {/* why-chain causal trace — numbered stepper */}
-          <Section label={t('Why does the problem happen · causal chain')}>
+          <Section label="لماذا تحدث المشكلة · سلسلة الأسباب">
             <ol className="space-y-0">
               {proof.why_chain.map((w, i) => {
                 const last = i === proof.why_chain.length - 1
@@ -317,7 +315,7 @@ export default function ProofPanel({
                       className="text-[9.5px] font-mono uppercase tracking-[0.14em]"
                       style={{ color: last ? SEV.alert : 'var(--color-faint)' }}
                     >
-                      {last ? t('root cause') : `why ${i + 1}`}
+                      {last ? 'root cause' : `why ${i + 1}`}
                     </div>
                     {w.question && !last && (
                       <div
@@ -357,7 +355,7 @@ export default function ProofPanel({
 
           {/* validation verdict + checks */}
           {proof.validation && (
-            <Section label={t('Proof strength')} count={proof.validation.checks.length}>
+            <Section label="قوة الإثبات" count={proof.validation.checks.length}>
               {(() => {
                 const v = proof.validation
                 const ok = v.verdict?.toLowerCase().includes('valid') || v.score >= 0.5
@@ -421,7 +419,7 @@ export default function ProofPanel({
 
           {/* evidence quotes */}
           {proof.evidence_segments.length > 0 && (
-            <Section label={t('Evidence · citizen testimonies')} count={proof.evidence_segments.length}>
+            <Section label="الأدلة · شهادات المواطنين" count={proof.evidence_segments.length}>
               <div className="space-y-2">
                 {proof.evidence_segments.map((e, i) => (
                   <div key={i} className="rounded-lg border border-border bg-card p-2.5">
@@ -447,7 +445,7 @@ export default function ProofPanel({
 
           {/* related cases */}
           {proof.related_cases.length > 0 && (
-            <Section label={t('Related cases · source records')} count={proof.related_cases.length}>
+            <Section label="الحالات ذات الصلة · سجلات المصدر" count={proof.related_cases.length}>
               <div className="space-y-1.5">
                 {proof.related_cases.map((c) => (
                   <div key={c.record_id} className="rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-border/70 hover:bg-cardhi">
@@ -462,7 +460,7 @@ export default function ProofPanel({
                         className="shrink-0 font-mono text-[10px]"
                         style={{ color: sevColor(c.severity) }}
                       >
-                        {c.sentiment_label} · {t('severity')} {c.severity}
+                        {c.sentiment_label} · sev {c.severity}
                       </span>
                     </div>
                     <div
@@ -483,7 +481,7 @@ export default function ProofPanel({
 
           {/* forecast sparkline */}
           {fc && spark && spark.length > 1 && (
-            <Section label={t('Forecast · trend')}>
+            <Section label="التوقّع · الاتجاه">
               <div className="flex items-center gap-1.5">
                 {fc.escalation?.escalating ? (
                   <TrendingUp className="h-3.5 w-3.5 text-danger" />
@@ -491,7 +489,7 @@ export default function ProofPanel({
                   <TrendingDown className="h-3.5 w-3.5 text-good" />
                 )}
                 <span className="text-[12px] font-medium text-txt">
-                  {fc.escalation?.escalating ? t('Escalating') : t('Stable')}
+                  {fc.escalation?.escalating ? 'Escalating' : 'Stable'}
                   {typeof fc.escalation?.ratio === 'number' && (
                     <span className="ml-1 font-mono text-faint">×{fc.escalation.ratio.toFixed(2)}</span>
                   )}

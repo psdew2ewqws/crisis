@@ -289,6 +289,83 @@ def _signals_fallback(filters: Dict[str, Any], limit: int, offset: int) -> Dict[
 
 
 # ===========================================================================
+# T2 — GOVERNORATE SIGNALS  (GET /api/gov-signals)
+# Backs the Jordan map's click panel ("Issues & Crises"). the_data.governorate is
+# messy real data: Arabic governorate names, Arabic sub-district / city names, and
+# mixed-case English variants — and only ~1.1k of the 22.9k rows are geocoded at
+# all. The frontend sends a canonical English id (amman/zarqa/…); a plain
+# equality filter on the id therefore matches nothing, which is why the panel read
+# "No recorded issues". We map the id → EVERY the_data.governorate spelling that
+# rolls up to that governorate, then aggregate over all of them.
+# ===========================================================================
+# id → governorate name + its towns/districts + English casings. Verified against
+# the live distinct values; together these cover 100% of the geocoded rows.
+GOV_VARIANTS: Dict[str, List[str]] = {
+    "amman":   ["عمّان", "عمان", "Amman", "amman"],
+    "zarqa":   ["الزرقاء", "الأزرق", "Zarqa", "zarqa"],
+    "irbid":   ["إربد", "رمثا", "المزار الشمالي", "Irbid", "irbid"],
+    "madaba":  ["مادبا", "ذيبان", "Madaba"],
+    "karak":   ["الكرك", "Karak", "karak"],
+    "tafilah": ["الطفيلة", "Tafilah"],
+    "aqaba":   ["العقبة", "القويرة"],
+    "balqa":   ["السلط", "Balqa"],
+    "mafraq":  ["المفرق", "البادية الشمالية", "Mafraq"],
+    "maan":    ["معان", "الشوبك", "وادي موسى", "Maan"],
+    "ajlun":   ["عجلون", "Ajloun", "ajloun"],
+    "jerash":  ["جرش", "Jerash"],
+}
+# Tolerate alternate ids the UI / geojson might emit for the same governorate.
+_GOV_ALIASES: Dict[str, str] = {
+    "ajloun": "ajlun", "jarash": "jerash", "ma'an": "maan", "ma`an": "maan",
+}
+
+
+@router.get("/api/gov-signals")
+def gov_signals(
+    gov: str = Query(..., min_length=1),
+    limit: int = Query(default=40, ge=1, le=200),
+) -> Dict[str, Any]:
+    """Issues & crises for ONE governorate: severity breakdown + recent signals."""
+    key = (gov or "").strip().lower()
+    key = _GOV_ALIASES.get(key, key)
+    variants = GOV_VARIANTS.get(key)
+    base: Dict[str, Any] = {"gov": gov, "total": 0, "by_severity": {}, "signals": []}
+    if not variants:
+        return {**base, "error": f"unknown governorate '{gov}'"}
+    if db is None:
+        return {**base, "error": "data layer unavailable"}
+
+    bind = {"variants": variants, "lim": max(1, min(200, int(limit)))}
+    try:
+        sev_rows = db.fetchall(
+            """select coalesce(severity, 'unknown') as sev, count(*) as n
+                 from the_data
+                 where governorate = any(%(variants)s)
+                 group by 1""",
+            bind,
+        )
+        by_severity = {r["sev"]: _safe_int(r["n"]) for r in sev_rows}
+        total = sum(by_severity.values())
+        # Most-urgent first so the panel surfaces critical/high signals at the top.
+        signals = db.fetchall(
+            """select record_id, service_id, text_clean, text,
+                      severity, sentiment_label, observed_at
+                 from the_data
+                 where governorate = any(%(variants)s)
+                 order by case lower(coalesce(severity, ''))
+                            when 'critical' then 0 when 'high' then 1
+                            when 'medium'   then 2 when 'low'  then 3 else 4 end,
+                          observed_at desc nulls last, record_id desc
+                 limit %(lim)s""",
+            bind,
+        )
+    except Exception as e:
+        return {**base, "error": str(e)}
+
+    return {"gov": gov, "total": total, "by_severity": by_severity, "signals": signals}
+
+
+# ===========================================================================
 # T2 — KPIS  (GET /api/kpis)
 # Wraps api_kpis.kpis() into the frontend's card-array contract.
 # ===========================================================================
@@ -780,10 +857,6 @@ def _write_decisions(store: List[Dict[str, Any]]) -> None:
 # ===========================================================================
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434")
 LLM_MODEL = os.environ.get("LLM_MODEL", "llama3.1")
-try:
-    LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT") or 60)
-except Exception:
-    LLM_TIMEOUT = 60.0
 
 
 class NarrateIn(BaseModel):
@@ -910,30 +983,19 @@ def _call_local_llm(prompt: str) -> Optional[str]:
         import urllib.request
 
         base = LLM_BASE_URL.rstrip("/")
-        # Prefer the Ollama-native chat endpoint with thinking disabled: reasoning
-        # ("thinking") models otherwise spend the whole budget on hidden reasoning
-        # and return empty content. `think:false` is ignored by non-thinking models.
-        # Fall back to /api/generate, then the OpenAI-compatible endpoint.
+        # Prefer the OpenAI-compatible chat endpoint; fall back to Ollama native.
         attempts = [
-            (
-                f"{base}/api/chat",
-                {"model": LLM_MODEL,
-                 "messages": [{"role": "user", "content": prompt}],
-                 "think": False, "stream": False,
-                 "options": {"temperature": 0.2}},
-                lambda d: (d.get("message") or {}).get("content"),
-            ),
-            (
-                f"{base}/api/generate",
-                {"model": LLM_MODEL, "prompt": prompt, "think": False, "stream": False},
-                lambda d: d.get("response"),
-            ),
             (
                 f"{base}/v1/chat/completions",
                 {"model": LLM_MODEL,
                  "messages": [{"role": "user", "content": prompt}],
                  "temperature": 0.2, "stream": False},
                 lambda d: d["choices"][0]["message"]["content"],
+            ),
+            (
+                f"{base}/api/generate",
+                {"model": LLM_MODEL, "prompt": prompt, "stream": False},
+                lambda d: d.get("response"),
             ),
         ]
         for url, body, extract in attempts:
@@ -942,7 +1004,7 @@ def _call_local_llm(prompt: str) -> Optional[str]:
                     url, data=json.dumps(body).encode("utf-8"),
                     headers={"Content-Type": "application/json"}, method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:
+                with urllib.request.urlopen(req, timeout=6) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                 text = extract(data)
                 if text and str(text).strip():

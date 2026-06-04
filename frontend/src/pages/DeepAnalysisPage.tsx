@@ -67,8 +67,7 @@ import {
   StopCircle,
 } from 'lucide-react'
 import { getRootCause, streamDebate, type RootCause, type DebateEvent } from '../lib/voc'
-import { t as lt } from '../lib/labels.gen'
-import { useT } from '../lib/i18n'
+import { t } from '../lib/labels.gen'
 
 // agent persona colours for the deep-research debate stream (mirrors ProofPanel)
 const ROLE_COLOR: Record<string, string> = {
@@ -314,7 +313,7 @@ const FB_FORECAST: ForecastResponse = {
 }
 const FB_VALIDATE: ValidateResponse = { verdict: 'insufficient', confidence: 0, axes: {}, engine: 'fallback' }
 const FB_ASK: AskResponse = {
-  answer: 'لم تُسترجع أي حقائق من voc360 — الخلفية غير متاحة.',
+  answer: 'No voc360 facts retrieved — the analysis backend is unreachable.',
   grounded: false,
   citations: [],
   followups: [],
@@ -367,7 +366,7 @@ const getEscalations = (horizon = 14): Promise<EscalationsResponse> =>
  * Prefer the build-time map (labels.gen t()), then the row's own label_en, then
  * the raw Arabic — never invent. */
 function enOf(row: { cluster_id?: string; label_en?: string | null; label_ar?: string | null }): string {
-  const fromMap = row.cluster_id ? lt(row.cluster_id) : ''
+  const fromMap = row.cluster_id ? t(row.cluster_id) : ''
   const en = (fromMap && fromMap !== row.cluster_id ? fromMap : '') || row.label_en || ''
   return (en || '').trim() || (row.label_ar || '').trim() || '(untranslated)'
 }
@@ -425,7 +424,6 @@ function whyNodeColor(n: WhyNode): string {
 
 /* ===================================================================== page */
 export default function DeepAnalysisPage() {
-  const { t } = useT()
   // ---- entity universe (grounded in ranked RIL clusters) ----
   const [causes, setCauses] = useState<RootCause[]>([])
   const [services, setServices] = useState<string[]>([])
@@ -719,13 +717,13 @@ export default function DeepAnalysisPage() {
           <div>
             <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-tight text-txt">
               <Brain className="h-7 w-7 text-blue" />
-              {t('Deep Analysis')}
+              Deep Analysis
             </h1>
             <p className="mt-1.5 flex items-center gap-2 text-[14px] text-muted">
               <Database className="h-3.5 w-3.5" />
-              {t('analysis grounded · why-chain · forecast · validation on real voc360 data')}
+              تحليل مؤصَّل · سلسلة الأسباب · التوقّع · التحقّق على بيانات voc360 الحقيقية
               {causes.length > 0 && (
-                <span className="text-faint">· {t('{n} root-cause clusters in scope', { n: causes.length })}</span>
+                <span className="text-faint">· {causes.length} root-cause clusters in scope</span>
               )}
             </p>
           </div>
@@ -738,14 +736,14 @@ export default function DeepAnalysisPage() {
             className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-60"
           >
             {loadingUniverse ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {loadingUniverse ? t('Loading…') : t('Refresh')}
+            {loadingUniverse ? 'Loading…' : 'Refresh'}
           </button>
         </div>
 
         {universeErr && (
           <div className="mt-6 flex items-center gap-2 rounded-lg border border-danger/40 bg-card px-4 py-3 text-[13px] text-danger">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            {t('Could not load the entity universe — {err}', { err: universeErr })}
+            Could not load the entity universe — {universeErr}
           </div>
         )}
 
@@ -753,12 +751,12 @@ export default function DeepAnalysisPage() {
         <div className="mt-6 rounded-xl border border-border bg-card p-4">
           <div className="mb-3 flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
             <Network className="h-3.5 w-3.5" />
-            {t('ANALYSIS TARGET')}
+            موضوع التحليل
           </div>
           <div className="flex flex-col gap-3 lg:flex-row">
             {/* services */}
             <div className="min-w-0 flex-1">
-              <div className="mb-1.5 text-[11px] text-muted">{t('Service')}</div>
+              <div className="mb-1.5 text-[11px] text-muted">الخدمة</div>
               <div className="flex flex-wrap gap-1.5">
                 {services.map((s) => {
                   const on = scope?.type === 'service' && scope.key === s
@@ -781,7 +779,7 @@ export default function DeepAnalysisPage() {
             </div>
             {/* clusters */}
             <div className="min-w-0 flex-[1.4]">
-              <div className="mb-1.5 text-[11px] text-muted">{t('Root-cause cluster (RIL)')}</div>
+              <div className="mb-1.5 text-[11px] text-muted">محور السبب الجذري (RIL)</div>
               <div className="flex flex-wrap gap-1.5">
                 {causes.slice(0, 8).map((c) => {
                   const on = scope?.type === 'cluster' && scope.key === c.cluster_id
@@ -807,14 +805,14 @@ export default function DeepAnalysisPage() {
                   )
                 })}
                 {causes.length === 0 && !loadingUniverse && (
-                  <span className="text-[12px] text-muted">{t('No clusters returned by voc360.')}</span>
+                  <span className="text-[12px] text-muted">No clusters returned by voc360.</span>
                 )}
               </div>
             </div>
           </div>
           {scope && (
             <div className="mt-3 flex items-center gap-2 border-t border-border pt-3 text-[12px] text-muted">
-              <span className="font-mono text-[10px] tracking-[0.12em] text-faint">{t('SELECTED')}</span>
+              <span className="font-mono text-[10px] tracking-[0.12em] text-faint">SELECTED</span>
               <span className="text-txt" dir={dir(scopeLabel)}>
                 {scopeLabel}
               </span>
@@ -844,7 +842,7 @@ export default function DeepAnalysisPage() {
             <div className="flex items-center justify-between border-b border-border px-5 py-3">
               <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
                 <Sparkles className="h-3.5 w-3.5" />
-                {t('Why-chain · root-cause graph')}
+                سلسلة الأسباب · رسم الأسباب الجذرية
               </div>
               <div className="flex items-center gap-2">
                 {whys.engine && <EngineBadge engine={whys.engine} />}
@@ -878,10 +876,10 @@ export default function DeepAnalysisPage() {
                 <div className="grid h-full place-items-center text-[13px] text-muted">
                   {busy.whys ? (
                     <span className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" /> {t('Tracing the why-chain…')}
+                      <Loader2 className="h-4 w-4 animate-spin" /> Tracing the why-chain…
                     </span>
                   ) : (
-                    t('No grounded why-chain for this target.')
+                    'No grounded why-chain for this target.'
                   )}
                 </div>
               )}
@@ -896,18 +894,18 @@ export default function DeepAnalysisPage() {
                       <li key={step.depth} className="flex items-start gap-2 text-[12.5px]">
                         <span className="mt-0.5 font-mono text-[10px] text-faint">#{step.depth}</span>
                         <div className="min-w-0">
-                          <span className="text-muted">{step.why || step.question || t('Why?')} → </span>
+                          <span className="text-muted">{step.why || step.question || 'Why?'} → </span>
                           <span className="text-txt" dir={dir(because)}>
                             {because}
                           </span>
                           {(step.signals ?? step.count ?? step.members) != null && (
                             <span className="ml-1.5 font-mono text-[10px] text-faint">
-                              {(step.signals ?? step.count ?? step.members)?.toLocaleString()} {t('signals')}
+                              {(step.signals ?? step.count ?? step.members)?.toLocaleString()} signals
                             </span>
                           )}
                           {step.confidence != null && (
                             <span className="ml-1.5 font-mono text-[10px] text-faint">
-                              {t('confidence')} {(step.confidence * 100).toFixed(0)}%
+                              conf {(step.confidence * 100).toFixed(0)}%
                             </span>
                           )}
                         </div>
@@ -973,7 +971,6 @@ function SuggestedQuestions({
   onPick: (q: SuggestQuestion) => void
   onFreeAsk: (q: string) => void
 }) {
-  const { t } = useT()
   const list = data.questions ?? data.suggestions ?? []
   const [free, setFree] = useState('')
 
@@ -1001,8 +998,8 @@ function SuggestedQuestions({
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
           <Sparkles className="h-3.5 w-3.5 text-warn" />
-          {t('Suggested questions')}
-          {data.grounded === false && <span className="text-faint">· {t('awaiting backend')}</span>}
+          أسئلة مقترحة
+          {data.grounded === false && <span className="text-faint">· awaiting backend</span>}
         </div>
         {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />}
       </div>
@@ -1016,7 +1013,7 @@ function SuggestedQuestions({
             if (e.key === 'Enter') submitFree()
           }}
           dir={dir(free)}
-          placeholder={t('Type your own question…')}
+          placeholder="اكتب سؤالك بنفسك…"
           className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-[13px] text-txt placeholder:text-faint focus:border-blue/60 focus:outline-none"
         />
         <button
@@ -1025,7 +1022,7 @@ function SuggestedQuestions({
           className="flex shrink-0 items-center gap-1.5 rounded-lg bg-blue px-3 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-50"
         >
           <Send className="h-3.5 w-3.5" />
-          {t('Ask')}
+          اسأل
         </button>
       </div>
 
@@ -1063,7 +1060,7 @@ function SuggestedQuestions({
         </div>
       ) : (
         <p className="text-[12.5px] text-muted">
-          {busy ? t('Generating grounded questions…') : t('No suggested questions for this target.')}
+          {busy ? 'Generating grounded questions…' : 'No suggested questions for this target.'}
         </p>
       )}
     </div>
@@ -1078,7 +1075,6 @@ const VERDICT_META: Record<Verdict, { tone: Tone; Icon: typeof ShieldCheck; labe
 }
 
 function ValidationBadge({ data, busy }: { data: ValidateResponse; busy: boolean }) {
-  const { t } = useT()
   const verdict = (data.verdict ?? 'insufficient') as Verdict
   const meta = VERDICT_META[verdict] ?? VERDICT_META.insufficient
   const conf = data.confidence ?? 0
@@ -1127,7 +1123,7 @@ function ValidationBadge({ data, busy }: { data: ValidateResponse; busy: boolean
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
           <ShieldCheck className="h-3.5 w-3.5" />
-          {t('Validation')}
+          التحقّق من القضية
         </div>
         {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />}
       </div>
@@ -1144,7 +1140,7 @@ function ValidationBadge({ data, busy }: { data: ValidateResponse; busy: boolean
         </div>
         <div className="leading-tight">
           <div className="font-mono text-[20px] text-txt">{(conf * 100).toFixed(0)}%</div>
-          <div className="font-mono text-[9px] tracking-[0.12em] text-faint">{t('confidence')}</div>
+          <div className="font-mono text-[9px] tracking-[0.12em] text-faint">CONFIDENCE</div>
         </div>
       </div>
 
@@ -1156,7 +1152,7 @@ function ValidationBadge({ data, busy }: { data: ValidateResponse; busy: boolean
         </div>
       ) : (
         <p className="mt-3 text-[12px] text-muted">
-          {busy ? t('Validating coverage, evidence, trend, sim-impact…') : t('No validation axes returned.')}
+          {busy ? 'Validating coverage, evidence, trend, sim-impact…' : 'No validation axes returned.'}
         </p>
       )}
 
@@ -1175,14 +1171,13 @@ function ValidationBadge({ data, busy }: { data: ValidateResponse; busy: boolean
 }
 
 function AxisBar({ name, score, pass, detail }: { name: string; score: number; pass: boolean; detail: string }) {
-  const { t } = useT()
   const col = pass ? AEGIS.good : score >= 0.4 ? AEGIS.warn : AEGIS.danger
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[12px] capitalize text-txt">{name.replace(/_/g, ' ')}</span>
         <span className="font-mono text-[10px]" style={{ color: col }}>
-          {pass ? t('PASS') : t('FAIL')} · {(score * 100).toFixed(0)}%
+          {pass ? 'PASS' : 'FAIL'} · {(score * 100).toFixed(0)}%
         </span>
       </div>
       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-soft">
@@ -1199,11 +1194,10 @@ function AxisBar({ name, score, pass, detail }: { name: string; score: number; p
 
 /* ===================================================== evidence panel */
 function EvidencePanel({ node }: { node: WhyNode | null }) {
-  const { t } = useT()
   if (!node) {
     return (
       <div className="rounded-xl border border-border bg-card p-5 text-[13px] text-muted">
-        {t('Click a node in the why-chain graph to inspect its grounded evidence.')}
+        Click a node in the why-chain graph to inspect its grounded evidence.
       </div>
     )
   }
@@ -1215,7 +1209,7 @@ function EvidencePanel({ node }: { node: WhyNode | null }) {
       <div className="flex items-center gap-2">
         <span className="h-2 w-2 rounded-full" style={{ background: col }} />
         <span className="font-mono text-[10px] tracking-[0.14em] text-faint">
-          {KIND_TAG[nodeKind(node)] ?? nodeKind(node).toUpperCase()} · {t('DEPTH')} {node.depth}
+          {KIND_TAG[nodeKind(node)] ?? nodeKind(node).toUpperCase()} · DEPTH {node.depth}
         </span>
       </div>
       <h3 className="mt-2 text-[15px] font-semibold leading-snug text-txt" dir={dir(label)}>
@@ -1231,7 +1225,7 @@ function EvidencePanel({ node }: { node: WhyNode | null }) {
       <div className="mt-3">
         <div className="mb-2 flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-faint">
           <Quote className="h-3 w-3" />
-          {t('REAL CITIZEN SEGMENTS')}
+          REAL CITIZEN SEGMENTS
         </div>
         {ev.length > 0 ? (
           <ul className="space-y-2">
@@ -1246,7 +1240,7 @@ function EvidencePanel({ node }: { node: WhyNode | null }) {
             ))}
           </ul>
         ) : (
-          <p className="text-[12px] text-muted">{t('No sample segments at this node.')}</p>
+          <p className="text-[12px] text-muted">No sample segments at this node.</p>
         )}
       </div>
     </div>
@@ -1271,7 +1265,6 @@ function ForecastPanel({
   lastHistT?: string
   escalations: EscalationsResponse
 }) {
-  const { t } = useT()
   const esc = data.escalation
   const escalating = !!esc?.escalating
   const ratio = esc?.ratio
@@ -1282,10 +1275,10 @@ function ForecastPanel({
         <div>
           <div className="flex items-center gap-2 text-[16px] font-semibold text-txt">
             <TrendingUp className="h-4 w-4 text-blue" />
-            {t('Forecast')}
+            Forecast
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
-            {t('30-day')} {metric === 'volume' ? t('signal volume') : t('negative-sentiment share')} ·{' '}
+            30-day {metric === 'volume' ? 'signal volume' : 'negative-sentiment share'} ·{' '}
             <MethodBadge method={data.method ?? data.source} />
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           </div>
@@ -1301,7 +1294,7 @@ function ForecastPanel({
                   metric === m ? 'bg-cardhi font-medium text-txt' : 'text-muted hover:text-txt'
                 }`}
               >
-                {m === 'volume' ? t('Volume') : t('Sentiment')}
+                {m === 'volume' ? 'Volume' : 'Sentiment'}
               </button>
             ))}
           </div>
@@ -1316,7 +1309,7 @@ function ForecastPanel({
               }}
             >
               {escalating ? <TrendingUp className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
-              {escalating ? t('Escalating') : t('Stable')}
+              {escalating ? 'Escalating' : 'Stable'}
               {ratio != null && <span className="font-mono text-[10px] opacity-80">×{ratio.toFixed(2)}</span>}
             </div>
           )}
@@ -1394,10 +1387,10 @@ function ForecastPanel({
         <div className="grid h-[200px] place-items-center text-[13px] text-muted">
           {busy ? (
             <span className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" /> {t('Building the daily series…')}
+              <Loader2 className="h-4 w-4 animate-spin" /> Building the daily series…
             </span>
           ) : (
-            t('No history available to forecast this target.')
+            'No history available to forecast this target.'
           )}
         </div>
       )}
@@ -1406,7 +1399,7 @@ function ForecastPanel({
       {escList.length > 0 && (
         <div className="mt-4 border-t border-border pt-3">
           <div className="mb-2 font-mono text-[10px] tracking-[0.14em] text-faint">
-            {t('ESCALATION WATCHLIST · NEXT 14 DAYS')}
+            ESCALATION WATCHLIST · NEXT 14 DAYS
           </div>
           <div className="flex flex-wrap gap-2">
             {escList.slice(0, 6).map((e, i) => {
@@ -1477,7 +1470,6 @@ function AskPanel({
   onDebate: () => void
   onStopDebate: () => void
 }) {
-  const { t } = useT()
   // Arabic-first answer block: when the answer is Arabic, render RTL, a touch
   // larger and roomier so it reads like a clean answer, not a dense mash-up.
   const answerAr = isAr(answer?.answer)
@@ -1485,7 +1477,7 @@ function AskPanel({
     <div className="mt-4 rounded-xl border border-border bg-card p-5">
       <div className="mb-3 flex items-center gap-2 font-mono text-[10px] tracking-[0.14em] text-faint">
         <Search className="h-3.5 w-3.5" />
-        {t('GROUNDED Q&A · ANSWERS COMPOSED FROM REAL voc360 FACTS')}
+        GROUNDED Q&amp;A · ANSWERS COMPOSED FROM REAL voc360 FACTS
       </div>
       <div className="flex items-center gap-2">
         <input
@@ -1496,7 +1488,7 @@ function AskPanel({
             if (e.key === 'Enter') onAsk()
           }}
           dir={dir(question)}
-          placeholder={t('Ask anything — e.g. why is Sanad rising? which problem will escalate next?')}
+          placeholder="Ask anything — e.g. why is Sanad rising? which problem will escalate next?"
           className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-3.5 py-2.5 text-[13.5px] text-txt placeholder:text-faint focus:border-blue/60 focus:outline-none"
         />
         <button
@@ -1505,7 +1497,7 @@ function AskPanel({
           className="flex shrink-0 items-center gap-2 rounded-lg bg-blue px-4 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-50"
         >
           {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          {t('Ask')}
+          Ask
         </button>
         {/* deep-research · agent debate over the current scope */}
         <button
@@ -1513,7 +1505,7 @@ function AskPanel({
           className="flex shrink-0 items-center gap-2 rounded-lg border border-[#A78BFA]/45 bg-[#A78BFA]/10 px-4 py-2.5 text-[13px] font-semibold text-[#A78BFA] transition-colors hover:bg-[#A78BFA]/20"
         >
           {debating ? <StopCircle className="h-4 w-4" /> : <MessagesSquare className="h-4 w-4" />}
-          {debating ? t('Stop') : t('Deep research · Agent debate')}
+          {debating ? 'إيقاف' : 'بحث عميق · نقاش الوكلاء'}
         </button>
       </div>
 
@@ -1571,7 +1563,7 @@ function AskPanel({
             {/* citations */}
             {answer.citations && answer.citations.length > 0 && (
               <div className="mt-3 border-t border-border pt-3">
-                <div className="mb-1.5 font-mono text-[9px] tracking-[0.12em] text-faint">{t('CITATIONS')}</div>
+                <div className="mb-1.5 font-mono text-[9px] tracking-[0.12em] text-faint">CITATIONS</div>
                 <ul className="space-y-1.5">
                   {answer.citations.map((c, i) => (
                     <li key={i} className="flex items-start gap-2 text-[11.5px]">
@@ -1594,7 +1586,7 @@ function AskPanel({
           {/* followups */}
           {answer.followups && answer.followups.length > 0 && (
             <div className="mt-3">
-              <div className="mb-1.5 font-mono text-[9px] tracking-[0.12em] text-faint">{t('FOLLOW-UP')}</div>
+              <div className="mb-1.5 font-mono text-[9px] tracking-[0.12em] text-faint">FOLLOW-UP</div>
               <div className="flex flex-wrap gap-2">
                 {answer.followups.map((f, i) => (
                   <button
@@ -1709,7 +1701,7 @@ function AskPanel({
             })}
             {debating && (
               <div className="flex items-center gap-2 py-1 text-[11px] text-muted">
-                <Loader2 className="h-3 w-3 animate-spin" /> {t('agents are debating…')}
+                <Loader2 className="h-3 w-3 animate-spin" /> الوكلاء يتناقشون…
               </div>
             )}
           </div>
@@ -1721,12 +1713,11 @@ function AskPanel({
 
 /* ===================================================== small badges */
 function EngineBadge({ engine }: { engine?: string }) {
-  const { t } = useT()
   if (!engine) return null
   const isLlm = engine === 'llm'
   const isFallback = engine === 'fallback'
   // Service-name engines (validate, forecast, suggest, …) are real, not fallbacks.
-  const label = isLlm ? 'LLM' : isFallback ? t('GROUNDED FALLBACK') : engine.toUpperCase()
+  const label = isLlm ? 'LLM' : isFallback ? 'GROUNDED FALLBACK' : engine.toUpperCase()
   const color = isFallback ? AEGIS.muted : AEGIS.good
   return (
     <span
@@ -1739,7 +1730,6 @@ function EngineBadge({ engine }: { engine?: string }) {
 }
 
 function MethodBadge({ method }: { method?: FcMethod }) {
-  const { t } = useT()
   if (!method) return null
   const isTf = method.startsWith('timesfm')
   const empty = method === 'empty'
@@ -1751,7 +1741,7 @@ function MethodBadge({ method }: { method?: FcMethod }) {
         color: empty ? AEGIS.faint : isTf ? AEGIS.good : AEGIS.warn,
       }}
     >
-      {empty ? t('NO DATA') : isTf ? method.toUpperCase() : `${method.toUpperCase()} (${t('STAT')})`}
+      {empty ? 'NO DATA' : isTf ? method.toUpperCase() : `${method.toUpperCase()} (STAT)`}
     </span>
   )
 }

@@ -9,12 +9,14 @@ Endpoints (mounted via FastAPI router):
   DELETE /api/expert/guardrails/{id}
   GET  /api/expert/health        liveness + model reachability
 
-Gemma 4 transport:
+Model transport:
   Uses the same Ollama-compatible ``/v1/chat/completions`` or Ollama native
   ``/api/chat`` endpoint as llm.py.  Configure via:
     GEMMA_BASE_URL  (default: same LLM_BASE_URL, i.e. http://localhost:11434)
-    GEMMA_MODEL     (default: gemma3)    ← change to gemma4 once your Ollama has it
-    GEMMA_TIMEOUT   (default: 30s)       ← generous; Gemma is larger than llama3.1
+    GEMMA_MODEL     (default: kimi-k2.5:cloud)  ← Kimi K2.5 via Ollama Pro cloud;
+                                                  set to any local tag to run offline
+    LLM_THINK       (default: false)            ← instant vs thinking mode (Kimi K2.5)
+    GEMMA_TIMEOUT   (default: 30s)              ← generous; covers the cloud round-trip
 
   The module is import-safe and falls back to a deterministic response when the
   model server is unreachable so the UI always returns something useful.
@@ -47,7 +49,11 @@ def _env(name: str, default: str) -> str:
 
 
 GEMMA_BASE_URL = _env("GEMMA_BASE_URL", _env("LLM_BASE_URL", "http://localhost:11434")).rstrip("/")
-GEMMA_MODEL = _env("GEMMA_MODEL", "gemma3")
+# Chat model. Default: Kimi K2.5 via Ollama cloud (Ollama Pro). The env name is
+# kept as GEMMA_MODEL for backwards compatibility; set it to any Ollama tag.
+GEMMA_MODEL = _env("GEMMA_MODEL", "kimi-k2.5:cloud")
+# Thinking-model toggle (Kimi K2.5). false = instant mode → answer text only.
+LLM_THINK = _env("LLM_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
 try:
     GEMMA_TIMEOUT = float(_env("GEMMA_TIMEOUT", "30"))
 except Exception:
@@ -117,10 +123,7 @@ def _call_model(messages: List[Dict[str, str]]) -> tuple[str, bool]:
             "model": GEMMA_MODEL,
             "messages": messages,
             "stream": False,
-            # Disable hidden reasoning so thinking models (e.g. kimi-k2.5:cloud)
-            # spend the num_predict budget on the actual answer, not on thinking.
-            # Safely ignored by non-thinking models.
-            "think": False,
+            "think": LLM_THINK,
             "options": {"num_predict": 512, "temperature": 0.3},
         }
     else:
@@ -137,8 +140,9 @@ def _call_model(messages: List[Dict[str, str]]) -> tuple[str, bool]:
     if text:
         return text, True
     return (
-        "⚠️ The Gemma model server is not reachable right now. "
-        "Start Ollama and run `ollama pull gemma3` (or set GEMMA_MODEL) to enable AI responses. "
+        f"⚠️ The chat model server is not reachable right now. "
+        f"Start Ollama and run `ollama pull {GEMMA_MODEL}` (Ollama Pro is required for "
+        f"`:cloud` tags) to enable AI responses. "
         "Your guardrails are still being saved and will take effect once the model is available.",
         False,
     )
@@ -167,6 +171,18 @@ def chat(
     message = message.strip()
     if not message:
         return {"answer": "Please type a question.", "guardrails_applied": [], "model_ok": False}
+
+    # 0. Guardrails gateway — fail-closed on harm / out-of-scope / out-of-jurisdiction,
+    #    redact PII before the message ever reaches the model.
+    try:
+        from . import guardrails_gateway as _guard
+        _rail = _guard.input_rail(message)
+        if _rail["action"] in ("refuse", "abstain"):
+            return {"answer": _rail["reason_ar"], "refused": True,
+                    "guardrails_applied": [{"rail": _rail["reason"]}], "model_ok": False}
+        message = _guard.redact_pii(_rail["cleaned"] or message)
+    except Exception:
+        pass
 
     # 1. Find relevant guardrails
     relevant = gs.find_relevant(message, n=5)

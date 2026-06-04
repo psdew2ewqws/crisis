@@ -1,7 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom'
 import App from './App'
 import Dashboard from './pages/Dashboard'
-import SignalExplorer from './pages/SignalExplorer'
 import IncidentGraph from './pages/IncidentGraph'
 import RootCause from './pages/RootCause'
 import Solutions from './pages/Solutions'
@@ -15,7 +14,6 @@ export const router = createBrowserRouter([
     element: <App />,
     children: [
       { index: true, element: <Dashboard /> },
-      { path: 'signals', element: <SignalExplorer /> },
       { path: 'case/:id/graph', element: <IncidentGraph /> },
       { path: 'case/:id/root-cause', element: <RootCause /> },
       { path: 'case/:id/solutions', element: <Solutions /> },

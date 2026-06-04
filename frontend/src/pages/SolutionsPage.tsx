@@ -29,7 +29,6 @@ import {
 } from 'lucide-react'
 import * as voc from '../lib/voc'
 import type { RootCause, Decision, NewDecision, CreateDecisionResponse } from '../lib/voc'
-import { useT } from '../lib/i18n'
 
 /* ------------------------------------------------------------------ types -- */
 
@@ -281,7 +280,6 @@ function SolutionCard({
   pending: boolean
   onAuthorize: () => void
 }) {
-  const { t } = useT()
   const sevCol = severityColor(sol.severity_avg)
   return (
     <div className="flex flex-col rounded-xl border border-border bg-card p-5 transition-colors hover:border-border/80 hover:bg-cardhi">
@@ -296,7 +294,7 @@ function SolutionCard({
             dir={isAr(sol.title) ? 'rtl' : 'ltr'}
             className="mt-1 text-[16px] font-semibold leading-tight tracking-tight text-txt"
           >
-            {t(sol.title)}
+            {sol.title}
           </h3>
           <p
             className="mt-1 text-[12.5px] leading-snug text-muted"
@@ -311,7 +309,7 @@ function SolutionCard({
         <span
           className={`shrink-0 rounded-md border px-2 py-0.5 font-mono text-[11px] font-medium ${FEAS_TONE[sol.feasibility]}`}
         >
-          {t(sol.feasibility + ' feasibility')}
+          {sol.feasibility} feasibility
         </span>
       </div>
 
@@ -319,23 +317,23 @@ function SolutionCard({
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-muted">
         <span className="inline-flex items-center gap-1.5">
           <Building2 className="h-3.5 w-3.5 text-faint" />
-          {t(sol.agency)}
+          {sol.agency}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: sevCol }} />
-          <span className="font-mono tnum">{sol.members}</span> {t('reports')} · sev{' '}
+          <span className="font-mono tnum">{sol.members}</span> reports · sev{' '}
           <span className="font-mono tnum">{sol.severity_avg.toFixed(2)}</span>
         </span>
       </div>
 
       {/* actions */}
       <div className="mt-4">
-        <div className="mb-2 font-mono text-[10px] tracking-[0.14em] text-faint">{t('COUNTERMEASURE')}</div>
+        <div className="mb-2 font-mono text-[10px] tracking-[0.14em] text-faint">COUNTERMEASURE</div>
         <ul className="space-y-1.5">
           {sol.actions.map((a, i) => (
             <li key={i} className="flex items-start gap-2 text-[13px] leading-snug text-txt">
               <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue" />
-              <span>{t(a)}</span>
+              <span>{a}</span>
             </li>
           ))}
         </ul>
@@ -347,7 +345,7 @@ function SolutionCard({
           <div className="mb-1.5 flex items-center justify-between text-[11px]">
             <span className="inline-flex items-center gap-1 text-muted">
               <TrendingDown className="h-3.5 w-3.5 text-good" />
-              {t('Expected impact')}
+              Expected impact
             </span>
             <span className="font-mono tnum text-good">−{Math.round(sol.impact_reduction * 100)}%</span>
           </div>
@@ -357,7 +355,7 @@ function SolutionCard({
           <div className="mb-1.5 flex items-center justify-between text-[11px]">
             <span className="inline-flex items-center gap-1 text-muted">
               <Gauge className="h-3.5 w-3.5 text-blue" />
-              {t('Confidence')}
+              Confidence
             </span>
             <span className="font-mono tnum text-txt">{sol.confidence.toFixed(2)}</span>
           </div>
@@ -372,7 +370,7 @@ function SolutionCard({
         {authorized ? (
           <span className="inline-flex items-center gap-1.5 rounded-lg border border-good/30 bg-good/10 px-3 py-2 text-[13px] font-semibold text-good">
             <ShieldCheck className="h-4 w-4" />
-            {t('Decision authorized')}
+            Decision authorized
           </span>
         ) : (
           <button
@@ -381,7 +379,7 @@ function SolutionCard({
             className="inline-flex items-center gap-1.5 rounded-lg bg-blue px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-60"
           >
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-            {pending ? t('Authorizing…') : t('Authorize')}
+            {pending ? 'Authorizing…' : 'Authorize'}
           </button>
         )}
       </div>
@@ -392,7 +390,6 @@ function SolutionCard({
 /* ------------------------------------------------------------------- page -- */
 
 export default function SolutionsPage() {
-  const { t } = useT()
   const [sols, setSols] = useState<ValidSolution[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [derived, setDerived] = useState(false)
@@ -549,14 +546,14 @@ export default function SolutionsPage() {
           <div>
             <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-tight text-txt">
               <FlaskConical className="h-6 w-6 text-blue" />
-              {t('Solutions')}
+              Solutions
             </h1>
             <p className="mt-1.5 flex items-center gap-2 text-[14px] text-muted">
-              {t('Valid-solution engine · cause → countermeasure → expected impact')}
+              Valid-solution engine · cause → countermeasure → expected impact
               {derived && (
                 <span className="inline-flex items-center gap-1 rounded-md border border-border bg-soft px-2 py-0.5 font-mono text-[11px] text-faint">
                   <Sparkles className="h-3 w-3" />
-                  {t('grounded')}
+                  grounded
                 </span>
               )}
             </p>
@@ -564,9 +561,7 @@ export default function SolutionsPage() {
           {decisions.length > 0 && (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-good/30 bg-good/10 px-3 py-2 text-[13px] font-medium text-good">
               <ShieldCheck className="h-4 w-4" />
-              {decisions.length === 1
-                ? t('{n} decision authorized', { n: decisions.length })
-                : t('{n} decisions authorized', { n: decisions.length })}
+              {decisions.length} decision{decisions.length > 1 ? 's' : ''} authorized
             </span>
           )}
         </div>
@@ -583,14 +578,14 @@ export default function SolutionsPage() {
         {!sols && !err && (
           <div className="mt-16 flex flex-col items-center justify-center gap-3 text-muted">
             <Loader2 className="h-6 w-6 animate-spin text-blue" />
-            <span className="text-[13px]">{t('Computing valid solutions from voc360 root causes…')}</span>
+            <span className="text-[13px]">Computing valid solutions from voc360 root causes…</span>
           </div>
         )}
 
         {/* empty */}
         {sols && sols.length === 0 && !err && (
           <div className="mt-16 text-center text-[13px] text-muted">
-            {t('No active root-cause clusters to resolve.')}
+            No active root-cause clusters to resolve.
           </div>
         )}
 

@@ -1105,6 +1105,52 @@ def _ticks_to_settle(series: List[Dict[str, Any]], eps: float = 0.005) -> int:
     return len(vals)
 
 
+def seir_readout(series: List[Dict[str, Any]], n_nodes: Optional[int] = None) -> Dict[str, Any]:
+    """Compact escalation readout from a SimResult ``series``.
+
+    NOTE: the sim's ``step`` is a RELATIVE propagation tick, NOT a wall-clock day — this
+    readout is the "will it escalate / how bad / how fast" signal for a NOVEL scenario
+    that has no real voc360 volume history. (For a voc360-resolvable service/cluster the
+    caller uses ``forecaster.escalation`` on real wall-clock volume instead; the two are
+    kept as separate signals and never mixed.)
+
+    Returns:
+      peak_negativity    : max mean_negativity over the run (0..1)
+      peak_n_critical    : max critical-node count over the run
+      peak_critical_frac : peak_n_critical / n_nodes, if n_nodes given (else None)
+      time_to_peak       : tick index where mean_negativity peaks (how fast it builds)
+      ticks_to_settle    : first tick after which negativity stops changing
+      escalating         : negativity ends materially above where it started (net rise)
+      severity           : 'low' | 'elevated' | 'critical' from the peak negativity
+    """
+    if not series:
+        return {
+            "peak_negativity": 0.0, "peak_n_critical": 0, "peak_critical_frac": None,
+            "time_to_peak": 0, "ticks_to_settle": 0, "escalating": False, "severity": "low",
+        }
+    negs = [float(p.get("mean_negativity", 0.0)) for p in series]
+    crits = [int(p.get("n_critical", 0)) for p in series]
+    peak_neg = max(negs)
+    peak_nc = max(crits) if crits else 0
+    frac = (peak_nc / n_nodes) if (n_nodes and n_nodes > 0) else None
+    escalating = (negs[-1] - negs[0]) > 0.02
+    if peak_neg >= CRITICAL_THRESHOLD:
+        severity = "critical"
+    elif peak_neg >= CRITICAL_THRESHOLD * 0.6:
+        severity = "elevated"
+    else:
+        severity = "low"
+    return {
+        "peak_negativity": round(peak_neg, 4),
+        "peak_n_critical": peak_nc,
+        "peak_critical_frac": round(frac, 4) if frac is not None else None,
+        "time_to_peak": negs.index(peak_neg),
+        "ticks_to_settle": _ticks_to_settle(series),
+        "escalating": bool(escalating),
+        "severity": severity,
+    }
+
+
 def run_before_after(
     graph,
     *,

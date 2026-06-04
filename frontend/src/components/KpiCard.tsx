@@ -1,7 +1,6 @@
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { Kpi, Tone } from '../lib/data'
-import { useT } from '../lib/i18n'
 
 const badgeTone: Record<Tone, string> = {
   danger: 'text-danger border-danger/30 bg-danger/10',
@@ -31,7 +30,6 @@ const barTone: Record<Tone, string> = {
 }
 
 export default function KpiCard({ kpi, index = 0 }: { kpi: Kpi; index?: number }) {
-  const { t } = useT()
   const Arrow = kpi.trend.dir === 'up' ? ArrowUpRight : ArrowDownRight
   const tone = kpi.badge.tone
   return (
@@ -55,11 +53,11 @@ export default function KpiCard({ kpi, index = 0 }: { kpi: Kpi; index?: number }
       <span className="pointer-events-none absolute -right-2 -top-2 h-8 w-8 rounded-full bg-txt/[0.04]" />
 
       <div className="flex items-center justify-between">
-        <span className="text-[13px] text-muted">{t(kpi.title)}</span>
+        <span className="text-[13px] text-muted">{kpi.title}</span>
         <span
           className={`rounded-md border px-2 py-0.5 font-mono text-[11px] font-medium tnum ${badgeTone[tone]}`}
         >
-          {t(kpi.badge.text)}
+          {kpi.badge.text}
         </span>
       </div>
 
@@ -67,7 +65,7 @@ export default function KpiCard({ kpi, index = 0 }: { kpi: Kpi; index?: number }
         <span className="text-[42px] font-semibold leading-none tracking-[-0.02em] text-txt tnum">
           {kpi.value}
         </span>
-        {kpi.unit && <span className="pb-1.5 text-[15px] text-muted">{t(kpi.unit)}</span>}
+        {kpi.unit && <span className="pb-1.5 text-[15px] text-muted">{kpi.unit}</span>}
       </div>
 
       <div className="mt-3.5 flex items-center justify-between">
@@ -75,9 +73,9 @@ export default function KpiCard({ kpi, index = 0 }: { kpi: Kpi; index?: number }
           className={`inline-flex items-center gap-1.5 rounded-md bg-soft/70 px-2 py-1 text-[12.5px] font-medium ${trendTone[kpi.trend.tone]}`}
         >
           <Arrow className="h-3.5 w-3.5" />
-          {t(kpi.trend.text)}
+          {kpi.trend.text}
         </span>
-        <span className="truncate ps-3 text-end text-[12px] text-faint">{t(kpi.sub)}</span>
+        <span className="truncate pl-3 text-right text-[12px] text-faint">{kpi.sub}</span>
       </div>
 
       {/* tiny baseline accent bar (21st.dev KPI-card touch) */}

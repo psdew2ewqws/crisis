@@ -5,7 +5,6 @@
 // onDone is fired from the CTA — App persists the flag.
 import { Target, ShieldCheck, TrendingUp } from 'lucide-react'
 import { BackgroundPaths } from './BackgroundPaths'
-import { useT } from '../lib/i18n'
 
 const CHIPS = [
   { icon: Target, ar: 'اكتشف السبب الجذري' },
@@ -14,10 +13,9 @@ const CHIPS = [
 ]
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
-  const { t } = useT()
   return (
     <BackgroundPaths
-      title={t('AEGIS Crisis Console')}
+      title="AEGIS Crisis Console"
       subtitle="منصّة ذكاء الأزمات · اكتشف السبب الجذري، أثبته بالأدلة، وتنبّأ بما هو قادم"
       cta="ابدأ · Enter Console"
       onCta={onDone}

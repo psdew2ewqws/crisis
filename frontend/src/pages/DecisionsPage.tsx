@@ -22,7 +22,6 @@
 // cleanly when the backend (or the not-yet-built POST handler) is unreachable.
 
 import { useEffect, useMemo, useState } from 'react'
-import { useT } from '../lib/i18n'
 import {
   Gavel,
   RefreshCw,
@@ -145,7 +144,6 @@ export default function DecisionsPage({
   const [err, setErr] = useState<string | null>(null)
 
   // Authorization-gate UI state.
-  const { t } = useT()
   const [gateFor, setGateFor] = useState<Decision | null>(null) // open modal target
   const [authorizer, setAuthorizer] = useState('') // authorized_by input
   const [submitting, setSubmitting] = useState(false)
@@ -196,7 +194,7 @@ export default function DecisionsPage({
   async function decide(d: Decision, status: 'approved' | 'rejected') {
     const who = authorizer.trim()
     if (!who) {
-      setGateErr(t('An authorizing officer name is required to clear the gate.'))
+      setGateErr('An authorizing officer name is required to clear the gate.')
       return
     }
     setSubmitting(true)
@@ -211,7 +209,7 @@ export default function DecisionsPage({
       const raw = res as CreateDecisionResponse & Partial<Decision>
       const accepted = raw.ok === true || !!raw.decision || typeof raw.id === 'string'
       if (!accepted) {
-        setGateErr(raw.error || t('Backend rejected the authorization — is the decisions store writable?'))
+        setGateErr(raw.error || 'Backend rejected the authorization — is the decisions store writable?')
         return
       }
       setGateFor(null)
@@ -231,22 +229,18 @@ export default function DecisionsPage({
           <div>
             <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-tight text-txt">
               <Gavel className="h-6 w-6 text-muted" />
-              {t('Decisions')}
+              Decisions
             </h1>
             <p className="mt-1.5 flex items-center gap-2 text-[14px] text-muted">
               <Database className="h-3.5 w-3.5" />
-              {t('Operator decision log over voc360 root causes')}
+              Operator decision log over voc360 root causes
               {decisions.length > 0 && (
                 <span className="text-faint">
-                  · {t('{logged} logged · {authorized} authorized · {pending} awaiting gate', {
-                    logged: decisions.length,
-                    authorized: authorizedCount,
-                    pending: pending.length,
-                  })}
+                  · {decisions.length} logged · {authorizedCount} authorized · {pending.length} awaiting gate
                 </span>
               )}
               {source === 'fallback' && decisions.length === 0 && (
-                <span className="text-faint">· {t('offline')}</span>
+                <span className="text-faint">· offline</span>
               )}
             </p>
           </div>
@@ -256,7 +250,7 @@ export default function DecisionsPage({
             className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-60"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {loading ? t('Loading…') : t('Refresh')}
+            {loading ? 'Loading…' : 'Refresh'}
           </button>
         </div>
 
@@ -266,12 +260,11 @@ export default function DecisionsPage({
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
             <div>
               <div className="mb-0.5 font-mono text-[10px] tracking-[0.14em] text-warn">
-                {t('HUMAN AUTHORIZATION REQUIRED')}
+                HUMAN AUTHORIZATION REQUIRED
               </div>
-              {pending.length === 1
-                ? t('{n} proposed decision cannot take effect until a named officer authorizes it.', { n: pending.length })
-                : t('{n} proposed decisions cannot take effect until a named officer authorizes them.', { n: pending.length })}
-              {' '}{t('Review the rationale, then clear the gate below.')}
+              {pending.length} proposed decision{pending.length === 1 ? '' : 's'} cannot take effect
+              until a named officer authorizes {pending.length === 1 ? 'it' : 'them'}. Review the
+              rationale, then clear the gate below.
             </div>
           </div>
         )}
@@ -280,7 +273,7 @@ export default function DecisionsPage({
         {err && (
           <div className="mt-6 flex items-center gap-2 rounded-lg border border-danger/40 bg-card px-4 py-3 text-[13px] text-danger">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            {t('Could not load decisions — {err}', { err })}
+            Could not load decisions — {err}
           </div>
         )}
 
@@ -288,12 +281,13 @@ export default function DecisionsPage({
         {!err && loading && decisions.length === 0 && (
           <div className="mt-10 flex items-center justify-center gap-2 text-[13px] text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {t('Loading decision log…')}
+            Loading decision log…
           </div>
         )}
         {!err && !loading && decisions.length === 0 && (
           <div className="mt-10 rounded-xl border border-border bg-card px-5 py-10 text-center text-[13px] text-muted">
-            {t('No decisions have been logged yet. Decisions are created from the Root Cause and Solutions views, then cleared through the authorization gate here.')}
+            No decisions have been logged yet. Decisions are created from the Root Cause and
+            Solutions views, then cleared through the authorization gate here.
           </div>
         )}
 
@@ -301,17 +295,17 @@ export default function DecisionsPage({
         {decisions.length > 0 && (
           <div className="mt-6 overflow-hidden rounded-xl border border-border bg-card">
             <div className="border-b border-border px-5 py-3 font-mono text-[10px] tracking-[0.14em] text-faint">
-              {t('DECISION LOG · {n}', { n: decisions.length })}
+              DECISION LOG · {decisions.length}
             </div>
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-border text-[11px] font-medium tracking-[0.08em] text-faint">
-                  <th className="px-5 py-3 font-medium">{t('DECISION')}</th>
-                  <th className="py-3 font-medium">{t('ROOT CAUSE')}</th>
-                  <th className="py-3 font-medium">{t('STATUS')}</th>
-                  <th className="py-3 font-medium">{t('AUTHORIZED BY')}</th>
-                  <th className="py-3 font-medium">{t('LOGGED')}</th>
-                  <th className="px-5 py-3 text-right font-medium">{t('GATE')}</th>
+                  <th className="px-5 py-3 font-medium">DECISION</th>
+                  <th className="py-3 font-medium">ROOT CAUSE</th>
+                  <th className="py-3 font-medium">STATUS</th>
+                  <th className="py-3 font-medium">AUTHORIZED BY</th>
+                  <th className="py-3 font-medium">LOGGED</th>
+                  <th className="px-5 py-3 text-right font-medium">GATE</th>
                 </tr>
               </thead>
               <tbody>
@@ -357,7 +351,6 @@ function DecisionRow({
   onAuthorize: () => void
   onOpenGraph: () => void
 }) {
-  const { t } = useT()
   const tone = STATUS_TONE[d.status] ?? 'neutral'
   const col = toneColor(tone)
   const who = authorizedBy(d) ?? d.owner ?? null
@@ -383,7 +376,7 @@ function DecisionRow({
           <button
             onClick={onOpenGraph}
             className="inline-flex items-center gap-1.5 font-mono text-[11px] text-muted transition-colors hover:text-txt"
-            title={t('Open this cluster in the graph')}
+            title="Open this cluster in the graph"
           >
             <Link2 className="h-3 w-3" />
             {String(d.cluster_id).slice(0, 8)}
@@ -400,7 +393,7 @@ function DecisionRow({
           style={{ color: col, borderColor: `${col}55`, background: `${col}14` }}
         >
           <StatusIcon status={d.status} />
-          {t(STATUS_LABEL[d.status] ?? d.status)}
+          {STATUS_LABEL[d.status] ?? d.status}
         </span>
       </td>
 
@@ -412,7 +405,7 @@ function DecisionRow({
             {who}
           </span>
         ) : (
-          <span className="text-[12px] text-faint">{gated ? t('unauthorized') : '—'}</span>
+          <span className="text-[12px] text-faint">{gated ? 'unauthorized' : '—'}</span>
         )}
       </td>
 
@@ -429,12 +422,12 @@ function DecisionRow({
             className="inline-flex items-center gap-1.5 rounded-lg border border-warn/40 px-3 py-1.5 text-[12.5px] font-medium text-warn transition-colors hover:bg-warn/10"
           >
             <ShieldCheck className="h-3.5 w-3.5" />
-            {t('Authorize')}
+            Authorize
           </button>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-[12px] text-faint">
             <ShieldCheck className="h-3.5 w-3.5" style={{ color: AEGIS.good }} />
-            {t('cleared')}
+            cleared
           </span>
         )}
       </td>
@@ -463,7 +456,6 @@ function GateModal({
   onReject: () => void
   onClose: () => void
 }) {
-  const { t } = useT()
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -479,7 +471,7 @@ function GateModal({
         <div className="flex items-center gap-2 border-b border-border px-5 py-3.5">
           <ShieldAlert className="h-4 w-4 text-warn" />
           <span className="font-mono text-[10px] tracking-[0.14em] text-warn">
-            {t('AUTHORIZATION GATE')}
+            AUTHORIZATION GATE
           </span>
         </div>
 
@@ -496,22 +488,22 @@ function GateModal({
 
           <dl className="mt-3 space-y-1.5 text-[12px]">
             {decision.cluster_id && (
-              <Row k={t('Root cause')} v={String(decision.cluster_id).slice(0, 8)} mono />
+              <Row k="Root cause" v={String(decision.cluster_id).slice(0, 8)} mono />
             )}
-            {decision.rationale && <Row k={t('Rationale')} v={decision.rationale} />}
+            {decision.rationale && <Row k="Rationale" v={decision.rationale} />}
           </dl>
 
           {/* authorizer input — the human-in-the-loop field */}
           <label className="mt-4 block">
             <span className="font-mono text-[10px] tracking-[0.14em] text-faint">
-              {t('AUTHORIZED BY')}
+              AUTHORIZED BY
             </span>
             <input
               value={authorizer}
               onChange={(e) => setAuthorizer(e.target.value)}
               disabled={submitting}
               autoFocus
-              placeholder={t('Authorizing officer name')}
+              placeholder="Authorizing officer name"
               className="mt-1.5 w-full rounded-lg border border-border bg-cardhi px-3 py-2 text-[13.5px] text-txt outline-none transition-colors placeholder:text-faint focus:border-blue disabled:opacity-60"
             />
           </label>
@@ -531,7 +523,7 @@ function GateModal({
             disabled={submitting}
             className="rounded-lg border border-border px-3.5 py-2 text-[13px] text-muted transition-colors hover:bg-soft hover:text-txt disabled:opacity-60"
           >
-            {t('Cancel')}
+            Cancel
           </button>
           <button
             onClick={onReject}
@@ -539,7 +531,7 @@ function GateModal({
             className="inline-flex items-center gap-1.5 rounded-lg border border-danger/40 px-3.5 py-2 text-[13px] font-medium text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
           >
             <XCircle className="h-4 w-4" />
-            {t('Reject')}
+            Reject
           </button>
           <button
             onClick={onApprove}
@@ -547,7 +539,7 @@ function GateModal({
             className="inline-flex items-center gap-1.5 rounded-lg bg-blue px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-50"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-            {submitting ? t('Submitting…') : t('Authorize')}
+            {submitting ? 'Submitting…' : 'Authorize'}
           </button>
         </div>
       </div>
