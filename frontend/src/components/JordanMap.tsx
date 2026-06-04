@@ -1,13 +1,13 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { X, AlertTriangle, Building2, Hospital, Loader2 } from 'lucide-react'
+import { X, AlertTriangle, Building2, Hospital, Loader2, ZoomOut } from 'lucide-react'
 import jordanData from '../lib/jordan-geojson'
 import { getGovSignals, severityTone, toneColor, type GovSummary } from '../lib/voc2'
 
 // ── Projection ────────────────────────────────────────────────────────────────
 const MIN_LON = 34.75, MAX_LON = 39.55
 const MIN_LAT = 28.95, MAX_LAT = 33.60
-const COS_LAT = Math.cos((31.3 * Math.PI) / 180)  // ≈ 0.856
+const COS_LAT = Math.cos((31.3 * Math.PI) / 180)
 const W = 860
 const H = Math.round(W * ((MAX_LAT - MIN_LAT) / ((MAX_LON - MIN_LON) * COS_LAT)))
 
@@ -42,21 +42,66 @@ function centroid(geom: { type: string; coordinates: unknown }): [number, number
   )
 }
 
+// ── Drill-down: fit a governorate's projected bbox into the W×H viewport ────────
+type ViewBox = { x: number; y: number; w: number; h: number }
+const FULL_VIEW: ViewBox = { x: 0, y: 0, w: W, h: H }
+const ASPECT = W / H
+const PAD = 0.18       // breathing room around the focused governorate
+const MIN_W = W * 0.22 // tightest zoom (~4.5×) so even tiny governorates stay legible
+
+function geomBBox(geom: { type: string; coordinates: unknown }) {
+  const rings: number[][][] =
+    geom.type === 'Polygon'
+      ? (geom.coordinates as number[][][])
+      : (geom.coordinates as number[][][][]).flat()
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const ring of rings)
+    for (const [lon, lat] of ring) {
+      const [x, y] = project(lon, lat)
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+    }
+  return { minX, minY, maxX, maxY }
+}
+
+// Centre on the bbox, pad it, force the W:H aspect (so the <svg> never reshapes),
+// clamp the zoom, then keep the box fully inside the map so we never reveal empty
+// background — the live viewBox is tweened toward this on select.
+function fitViewBox(geom: { type: string; coordinates: unknown }): ViewBox {
+  const { minX, minY, maxX, maxY } = geomBBox(geom)
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2
+  const bw = (maxX - minX) * (1 + PAD * 2), bh = (maxY - minY) * (1 + PAD * 2)
+  let w = bw / bh > ASPECT ? bw : bh * ASPECT
+  w = Math.max(MIN_W, Math.min(W, w))
+  const h = w / ASPECT
+  return {
+    x: Math.max(0, Math.min(W - w, cx - w / 2)),
+    y: Math.max(0, Math.min(H - h, cy - h / 2)),
+    w,
+    h,
+  }
+}
+
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3)
+
 // ── Name maps ─────────────────────────────────────────────────────────────────
 const GOV_AR: Record<string, string> = {
   Irbid: 'إربد', Madaba: 'مادبا', Karak: 'الكرك', Tafilah: 'الطفيلة',
   Aqaba: 'العقبة', Balqa: 'البلقاء', Mafraq: 'المفرق', 'Ma`an': 'معان',
   Amman: 'عمان', Zarqa: 'الزرقاء', Ajlun: 'عجلون', Jarash: 'جرش',
 }
-// GeoJSON NAME_1 → backend gov id
 const GOV_ID: Record<string, string> = {
   Irbid: 'irbid', Madaba: 'madaba', Karak: 'karak', Tafilah: 'tafilah',
   Aqaba: 'aqaba', Balqa: 'balqa', Mafraq: 'mafraq', 'Ma`an': 'maan',
   Amman: 'amman', Zarqa: 'zarqa', Ajlun: 'ajlun', Jarash: 'jerash',
 }
-const SKIP_LABEL = new Set(['Ajlun', 'Jarash', 'Madaba', 'Tafilah'])
 const LABEL_OFFSET: Record<string, [number, number]> = {
   Amman: [0, -12], Zarqa: [0, -10], Aqaba: [0, 10],
+  // Northern trio (Irbid · Ajlun · Jarash) is tightly packed — nudge the small
+  // Ajlun/Jarash labels apart so all 12 names render without overlapping.
+  Ajlun: [-5, -7], Jarash: [11, 9],
 }
 
 // ── Static facility data ──────────────────────────────────────────────────────
@@ -117,7 +162,6 @@ function DetailsPanel({
   const [loading, setLoading] = useState(true)
   const fetchedRef = useRef(false)
 
-  // Fetch once per mount
   if (!fetchedRef.current) {
     fetchedRef.current = true
     getGovSignals(govId).then(s => { setSummary(s); setLoading(false) })
@@ -125,7 +169,7 @@ function DetailsPanel({
 
   const cd   = CIVIL_DEFENSE[govId] ?? []
   const hosp = HOSPITALS[govId] ?? []
-  const displayName = name === "Ma\`an" ? "Ma'an" : name
+  const displayName = name === "Ma`an" ? "Ma'an" : name
 
   return (
     <motion.div
@@ -135,7 +179,6 @@ function DetailsPanel({
       transition={{ duration: 0.18, ease: 'easeOut' }}
       className="border-t border-border"
     >
-      {/* panel header */}
       <div className="relative flex items-center justify-between px-5 py-3">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-blue/40 to-transparent" />
         <div className="flex items-center gap-2">
@@ -155,9 +198,7 @@ function DetailsPanel({
         </button>
       </div>
 
-      {/* three columns */}
       <div className="grid grid-cols-1 gap-0 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        {/* Issues */}
         <div className="px-4 py-3">
           <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
             <AlertTriangle className="h-3.5 w-3.5" />
@@ -209,7 +250,6 @@ function DetailsPanel({
           )}
         </div>
 
-        {/* Civil Defense */}
         <div className="px-4 py-3">
           <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
             <Building2 className="h-3.5 w-3.5" />
@@ -234,7 +274,6 @@ function DetailsPanel({
             )}
         </div>
 
-        {/* Hospitals */}
         <div className="px-4 py-3">
           <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
             <Hospital className="h-3.5 w-3.5" />
@@ -267,80 +306,131 @@ function DetailsPanel({
 export default function JordanMap() {
   const [hovered,  setHovered]  = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  // Live viewBox — tweened toward the selected governorate's bbox (drill-down).
+  const [vb, setVb] = useState<ViewBox>(FULL_VIEW)
+  const vbRef = useRef<ViewBox>(FULL_VIEW)
+  const rafRef = useRef<number | undefined>(undefined)
 
   const toggle = (name: string) =>
     setSelected(prev => (prev === name ? null : name))
+
+  // Animate the viewBox from wherever it is now to the new target (the selected
+  // governorate, or the full map when nothing is selected) with a rAF tween.
+  useEffect(() => {
+    const feat = selected
+      ? jordanData.features.find(f => f.properties.NAME_1 === selected)
+      : undefined
+    const target = feat ? fitViewBox(feat.geometry) : FULL_VIEW
+    const from = vbRef.current
+    const t0 = performance.now()
+    const DUR = 480
+    if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current)
+    const step = (now: number) => {
+      const e = easeOutCubic(Math.min(1, (now - t0) / DUR))
+      const next: ViewBox = {
+        x: from.x + (target.x - from.x) * e,
+        y: from.y + (target.y - from.y) * e,
+        w: from.w + (target.w - from.w) * e,
+        h: from.h + (target.h - from.h) * e,
+      }
+      vbRef.current = next
+      setVb(next)
+      if (e < 1) rafRef.current = requestAnimationFrame(step)
+    }
+    rafRef.current = requestAnimationFrame(step)
+    return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current) }
+  }, [selected])
+
+  // Zoom factor in user-space (≤1 when drilled in). Strokes are non-scaling, but
+  // text scales with the viewBox — counter-scale the font so labels stay legible.
+  const k = vb.w / W
 
   return (
     <div className="w-full group relative overflow-hidden rounded-xl border border-border bg-card transition-[border-color,box-shadow] duration-200 hover:border-border/80 hover:shadow-xl hover:shadow-black/20">
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-gradient-to-r from-blue/60 to-transparent" />
 
-      {/* header */}
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <div className="text-[13px] font-semibold text-txt">Jordan — Governorate Map</div>
         <div className="text-[12px] text-faint">
           {hovered && !selected ? (
             <span className="font-medium text-txt">
-              {hovered === "Ma\`an" ? "Ma'an" : hovered}
+              {hovered === "Ma`an" ? "Ma'an" : hovered}
               {GOV_AR[hovered] && (
                 <span className="ml-2 text-muted" dir="rtl">{GOV_AR[hovered]}</span>
               )}
             </span>
           ) : selected ? (
-            <span className="text-blue">Click again to close</span>
+            <span className="text-blue">Click again to zoom out</span>
           ) : (
-            '12 governorates · click to explore'
+            '12 governorates · click to drill down'
           )}
         </div>
       </div>
 
-      {/* SVG */}
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="w-full"
-        style={{ display: 'block', background: '#0d0e11' }}
-      >
-        {[30, 31, 32, 33].map(lat => {
-          const [, y] = project(MIN_LON, lat)
-          return <line key={`lat${lat}`} x1={0} y1={y} x2={W} y2={y} stroke="#1c1d23" strokeWidth={0.8} />
-        })}
-        {[35, 36, 37, 38, 39].map(lon => {
-          const [x] = project(lon, MIN_LAT)
-          return <line key={`lon${lon}`} x1={x} y1={0} x2={x} y2={H} stroke="#1c1d23" strokeWidth={0.8} />
-        })}
+      <div className="relative">
+        <AnimatePresence>
+          {selected && (
+            <motion.button
+              key="zoomout"
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -6 }}
+              transition={{ duration: 0.16, ease: 'easeOut' }}
+              onClick={() => setSelected(null)}
+              className="absolute left-3 top-3 z-20 flex items-center gap-1.5 rounded-lg border border-border bg-card/85 px-2.5 py-1.5 text-[11px] font-medium text-muted backdrop-blur-sm transition-colors hover:border-blue/50 hover:text-txt"
+            >
+              <ZoomOut className="h-3.5 w-3.5" /> Zoom out
+            </motion.button>
+          )}
+        </AnimatePresence>
 
-        {jordanData.features.map(feature => {
-          const name = feature.properties.NAME_1
-          const d    = geomToD(feature.geometry)
-          const isH  = hovered === name
-          const isS  = selected === name
-          const [cx, cy] = centroid(feature.geometry)
-          const [ox, oy] = LABEL_OFFSET[name] ?? [0, 0]
-          const displayName = name === "Ma\`an" ? "Ma'an" : name
+        <svg
+          viewBox={`${vb.x.toFixed(2)} ${vb.y.toFixed(2)} ${vb.w.toFixed(2)} ${vb.h.toFixed(2)}`}
+          className="w-full"
+          style={{ display: 'block', background: '#0d0e11' }}
+        >
+          {[30, 31, 32, 33].map(lat => {
+            const [, y] = project(MIN_LON, lat)
+            return <line key={`lat${lat}`} x1={0} y1={y} x2={W} y2={y} stroke="#1c1d23" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
+          })}
+          {[35, 36, 37, 38, 39].map(lon => {
+            const [x] = project(lon, MIN_LAT)
+            return <line key={`lon${lon}`} x1={x} y1={0} x2={x} y2={H} stroke="#1c1d23" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
+          })}
 
-          return (
-            <g key={name}>
-              <path
-                d={d}
-                fill={isS ? '#1d4ed8' : isH ? '#1e40af' : '#1e3a5f'}
-                stroke={isS ? '#93c5fd' : isH ? '#60a5fa' : '#3b82f6'}
-                strokeWidth={isS ? 2 : isH ? 1.6 : 0.8}
-                strokeLinejoin="round"
-                style={{ cursor: 'pointer', transition: 'fill 0.14s, stroke 0.14s' }}
-                onMouseEnter={() => setHovered(name)}
-                onMouseLeave={() => setHovered(null)}
-                onClick={() => toggle(name)}
-              />
-              {/* selected ring */}
-              {isS && (
-                <path d={d} fill="none" stroke="#bfdbfe" strokeWidth={0.5}
-                  strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
-              )}
-              {!SKIP_LABEL.has(name) && (
+          {jordanData.features.map(feature => {
+            const name = feature.properties.NAME_1
+            const d    = geomToD(feature.geometry)
+            const isH  = hovered === name
+            const isS  = selected === name
+            const dim  = selected !== null && !isS
+            const [cx, cy] = centroid(feature.geometry)
+            const [ox, oy] = LABEL_OFFSET[name] ?? [0, 0]
+            const displayName = name === "Ma`an" ? "Ma'an" : name
+
+            return (
+              <g key={name} style={{ opacity: dim ? 0.4 : 1, transition: 'opacity 0.3s ease' }}>
+                <path
+                  d={d}
+                  fill={isS ? '#1d4ed8' : isH ? '#1e40af' : '#1e3a5f'}
+                  stroke={isS ? '#93c5fd' : isH ? '#60a5fa' : '#3b82f6'}
+                  strokeWidth={isS ? 2 : isH ? 1.6 : 0.8}
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                  style={{ cursor: 'pointer', transition: 'fill 0.14s, stroke 0.14s' }}
+                  onMouseEnter={() => setHovered(name)}
+                  onMouseLeave={() => setHovered(null)}
+                  onClick={() => toggle(name)}
+                />
+                {isS && (
+                  <path d={d} fill="none" stroke="#bfdbfe" strokeWidth={0.5}
+                    strokeDasharray="4 3" vectorEffect="non-scaling-stroke"
+                    style={{ pointerEvents: 'none' }} />
+                )}
                 <text
                   x={cx + ox} y={cy + oy}
                   textAnchor="middle" dominantBaseline="middle"
-                  fontSize={name === 'Mafraq' || name === "Ma\`an" ? 14 : 11.5}
+                  fontSize={(name === 'Mafraq' || name === "Ma`an" ? 14 : 11.5) * k}
                   fontFamily="system-ui, sans-serif"
                   fill={isS ? '#dbeafe' : isH ? '#bfdbfe' : '#93c5fd'}
                   fontWeight={isS || isH ? 600 : 400}
@@ -348,13 +438,12 @@ export default function JordanMap() {
                 >
                   {displayName}
                 </text>
-              )}
-            </g>
-          )
-        })}
-      </svg>
+              </g>
+            )
+          })}
+        </svg>
+      </div>
 
-      {/* details panel — slides in below the map */}
       <AnimatePresence>
         {selected && (
           <DetailsPanel

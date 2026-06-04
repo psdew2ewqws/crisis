@@ -289,55 +289,80 @@ def _signals_fallback(filters: Dict[str, Any], limit: int, offset: int) -> Dict[
 
 
 # ===========================================================================
-# GOVERNORATE SUMMARY  (GET /api/gov-signals)
-# DB-level aggregation for the Jordan map panel. Accepts both Arabic and Latin
-# governorate names (the DB stores both forms across different rows).
-# Returns: total, severity breakdown, recent 12 signals, all in one query.
+# T2 — GOVERNORATE SIGNALS  (GET /api/gov-signals)
+# Backs the Jordan map's click panel ("Issues & Crises"). the_data.governorate is
+# messy real data: Arabic governorate names, Arabic sub-district / city names, and
+# mixed-case English variants — and only ~1.1k of the 22.9k rows are geocoded at
+# all. The frontend sends a canonical English id (amman/zarqa/…); a plain
+# equality filter on the id therefore matches nothing, which is why the panel read
+# "No recorded issues". We map the id → EVERY the_data.governorate spelling that
+# rolls up to that governorate, then aggregate over all of them.
 # ===========================================================================
-_GOV_ALIASES: Dict[str, list] = {
-    "amman":   ["amman", "عمان"],
-    "zarqa":   ["zarqa", "الزرقاء"],
-    "irbid":   ["irbid", "إربد"],
-    "balqa":   ["balqa", "البلقاء"],
-    "mafraq":  ["mafraq", "المفرق"],
-    "madaba":  ["madaba", "مادبا"],
-    "karak":   ["karak", "الكرك"],
-    "tafilah": ["tafilah", "الطفيلة"],
-    "maan":    ["maan", "ma'an", "معان"],
-    "aqaba":   ["aqaba", "العقبة"],
-    "ajloun":  ["ajloun", "عجلون"],
-    "jerash":  ["jerash", "جرش"],
+# id → governorate name + its towns/districts + English casings. Verified against
+# the live distinct values; together these cover 100% of the geocoded rows.
+GOV_VARIANTS: Dict[str, List[str]] = {
+    "amman":   ["عمّان", "عمان", "Amman", "amman"],
+    "zarqa":   ["الزرقاء", "الأزرق", "Zarqa", "zarqa"],
+    "irbid":   ["إربد", "رمثا", "المزار الشمالي", "Irbid", "irbid"],
+    "madaba":  ["مادبا", "ذيبان", "Madaba"],
+    "karak":   ["الكرك", "Karak", "karak"],
+    "tafilah": ["الطفيلة", "Tafilah"],
+    "aqaba":   ["العقبة", "القويرة"],
+    "balqa":   ["السلط", "Balqa"],
+    "mafraq":  ["المفرق", "البادية الشمالية", "Mafraq"],
+    "maan":    ["معان", "الشوبك", "وادي موسى", "Maan"],
+    "ajlun":   ["عجلون", "Ajloun", "ajloun"],
+    "jerash":  ["جرش", "Jerash"],
+}
+# Tolerate alternate ids the UI / geojson might emit for the same governorate.
+_GOV_ALIASES: Dict[str, str] = {
+    "ajloun": "ajlun", "jarash": "jerash", "ma'an": "maan", "ma`an": "maan",
 }
 
+
 @router.get("/api/gov-signals")
-def gov_signals(gov: str = Query(...)) -> Dict[str, Any]:
-    """Return signal summary for a governorate (by id, e.g. 'amman', 'zarqa')."""
-    keys = _GOV_ALIASES.get(gov.lower(), [gov.lower()])
-    empty = {"gov": gov, "total": 0, "by_severity": {}, "signals": []}
+def gov_signals(
+    gov: str = Query(..., min_length=1),
+    limit: int = Query(default=40, ge=1, le=200),
+) -> Dict[str, Any]:
+    """Issues & crises for ONE governorate: severity breakdown + recent signals."""
+    key = (gov or "").strip().lower()
+    key = _GOV_ALIASES.get(key, key)
+    variants = GOV_VARIANTS.get(key)
+    base: Dict[str, Any] = {"gov": gov, "total": 0, "by_severity": {}, "signals": []}
+    if not variants:
+        return {**base, "error": f"unknown governorate '{gov}'"}
     if db is None:
-        return {**empty, "error": "data layer unavailable"}
+        return {**base, "error": "data layer unavailable"}
+
+    bind = {"variants": variants, "lim": max(1, min(200, int(limit)))}
     try:
-        placeholders = ",".join(f"%(k{i})s" for i in range(len(keys)))
-        bind: Dict[str, Any] = {f"k{i}": k for i, k in enumerate(keys)}
-        where = f"where governorate in ({placeholders})"
-        total_row = db.fetchone(f"select count(*) n from the_data {where}", bind)
-        total = int(total_row["n"]) if total_row else 0
         sev_rows = db.fetchall(
-            f"select coalesce(severity,'unknown') sev, count(*) n from the_data {where} group by sev",
+            """select coalesce(severity, 'unknown') as sev, count(*) as n
+                 from the_data
+                 where governorate = any(%(variants)s)
+                 group by 1""",
             bind,
         )
-        by_severity = {r["sev"]: int(r["n"]) for r in (sev_rows or [])}
-        bind2 = {**bind, "lim": 12}
-        recent = db.fetchall(
-            f"""select record_id, service_id, text_clean, text, severity, sentiment_label, observed_at
-                from the_data {where}
-                order by observed_at desc nulls last
-                limit %(lim)s""",
-            bind2,
+        by_severity = {r["sev"]: _safe_int(r["n"]) for r in sev_rows}
+        total = sum(by_severity.values())
+        # Most-urgent first so the panel surfaces critical/high signals at the top.
+        signals = db.fetchall(
+            """select record_id, service_id, text_clean, text,
+                      severity, sentiment_label, observed_at
+                 from the_data
+                 where governorate = any(%(variants)s)
+                 order by case lower(coalesce(severity, ''))
+                            when 'critical' then 0 when 'high' then 1
+                            when 'medium'   then 2 when 'low'  then 3 else 4 end,
+                          observed_at desc nulls last, record_id desc
+                 limit %(lim)s""",
+            bind,
         )
-        return {"gov": gov, "total": total, "by_severity": by_severity, "signals": recent or []}
     except Exception as e:
-        return {**empty, "error": str(e)}
+        return {**base, "error": str(e)}
+
+    return {"gov": gov, "total": total, "by_severity": by_severity, "signals": signals}
 
 
 # ===========================================================================
