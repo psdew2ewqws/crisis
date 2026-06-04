@@ -1,10 +1,11 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Zap, Loader2, X, Check, BellRing, Send } from 'lucide-react'
-import { motion } from 'motion/react'
+import { motion, AnimatePresence } from 'motion/react'
 import Sidebar, { type CaseRow } from './components/Sidebar'
 import Topbar from './components/Topbar'
 import KpiCard from './components/KpiCard'
 import PopulationClock from './components/PopulationClock'
+import JordanMap from './components/JordanMap'
 import DataTable from './components/DataTable'
 import LiveGraph from './components/LiveGraph'
 import Onboarding from './components/Onboarding'
@@ -170,6 +171,19 @@ function RunProgress({ run, onClose }: { run: RunState; onClose: () => void }) {
   )
 }
 
+type AlertSeverity = 'low' | 'medium' | 'high' | 'critical'
+
+const ALERT_SEVERITIES: { value: AlertSeverity; label: string; color: string; bg: string; border: string }[] = [
+  { value: 'low',      label: 'Low',      color: '#34D399', bg: 'rgba(52,211,153,0.12)',  border: 'rgba(52,211,153,0.35)' },
+  { value: 'medium',   label: 'Medium',   color: '#FBBF24', bg: 'rgba(251,191,36,0.12)',  border: 'rgba(251,191,36,0.35)' },
+  { value: 'high',     label: 'High',     color: '#F97316', bg: 'rgba(249,115,22,0.12)',  border: 'rgba(249,115,22,0.35)' },
+  { value: 'critical', label: 'Critical', color: '#F04359', bg: 'rgba(240,67,89,0.12)',   border: 'rgba(240,67,89,0.40)' },
+]
+
+const sevMeta = (sev: AlertSeverity) => ALERT_SEVERITIES.find((s) => s.value === sev)!
+
+interface ActiveAlertState { message: string; severity: AlertSeverity }
+
 function DashboardView({
   service,
   onRun,
@@ -182,7 +196,8 @@ function DashboardView({
   const [kpis, setKpis] = useState<Kpi[] | null>(null)
   const [alertOpen, setAlertOpen] = useState(false)
   const [alertDraft, setAlertDraft] = useState('')
-  const [activeAlert, setActiveAlert] = useState<string | null>(null)
+  const [alertSeverity, setAlertSeverity] = useState<AlertSeverity>('medium')
+  const [activeAlert, setActiveAlert] = useState<ActiveAlertState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -201,14 +216,15 @@ function DashboardView({
   const activateAlert = () => {
     const msg = alertDraft.trim()
     if (!msg) return
-    setActiveAlert(msg)
+    setActiveAlert({ message: msg, severity: alertSeverity })
     setAlertDraft('')
     setAlertOpen(false)
   }
 
-  const dismissAlert = () => setActiveAlert(null)
-
+  const sm = alertOpen ? sevMeta(alertSeverity) : null
+  const activeSm = activeAlert ? sevMeta(activeAlert.severity) : null
   const cards = kpis ?? fallbackKpis
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-[1340px] px-8 py-7">
@@ -226,16 +242,17 @@ function DashboardView({
           <div className="flex items-center gap-2.5">
             <button
               onClick={alertOpen ? () => setAlertOpen(false) : openAlert}
+              style={activeAlert && !alertOpen ? { borderColor: activeSm?.border, color: activeSm?.color, background: activeSm?.bg } : undefined}
               className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-[13.5px] font-semibold transition-colors ${
                 alertOpen
-                  ? 'border-warn/50 bg-warn/10 text-warn hover:bg-warn/15'
+                  ? 'border-warn/50 bg-warn/10 text-warn'
                   : activeAlert
-                  ? 'border-danger/50 bg-danger/10 text-danger hover:bg-danger/15'
+                  ? ''
                   : 'border-border bg-card text-muted hover:border-warn/50 hover:bg-warn/10 hover:text-warn'
               }`}
             >
-              <BellRing className={`h-4 w-4 ${alertOpen || activeAlert ? '' : ''}`} />
-              {activeAlert && !alertOpen ? 'Alert Active' : 'Alert'}
+              <BellRing className="h-4 w-4" />
+              {activeAlert && !alertOpen ? `Alert Active · ${activeSm?.label}` : 'Alert'}
             </button>
             <button
               onClick={onRun}
@@ -248,86 +265,135 @@ function DashboardView({
         </div>
 
         {/* alert compose panel */}
-        {alertOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="relative mt-4 overflow-hidden rounded-xl border border-warn/40 bg-card"
-          >
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-warn/70 to-transparent" />
-            <div className="px-5 pt-4 pb-3">
-              <div className="flex items-center gap-2 text-[13px] font-semibold text-warn">
-                <BellRing className="h-4 w-4" />
-                Compose Alert
-              </div>
-              <textarea
-                ref={textareaRef}
-                value={alertDraft}
-                onChange={(e) => setAlertDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) activateAlert()
-                  if (e.key === 'Escape') setAlertOpen(false)
-                }}
-                placeholder="Type your alert message…"
-                rows={3}
-                className="mt-3 w-full resize-none rounded-lg border border-border bg-soft px-3.5 py-2.5 text-[13.5px] text-txt placeholder:text-faint focus:border-warn/60 focus:outline-none focus:ring-1 focus:ring-warn/30"
+        <AnimatePresence>
+          {alertOpen && (
+            <motion.div
+              key="alert-compose"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="relative mt-4 overflow-hidden rounded-xl border bg-card"
+              style={{ borderColor: sm?.border }}
+            >
+              <div
+                className="pointer-events-none absolute inset-x-0 top-0 h-px"
+                style={{ background: `linear-gradient(to right, ${sm?.color}bb, transparent)` }}
               />
-              <div className="mt-2.5 flex items-center justify-between">
-                <span className="text-[12px] text-faint">
-                  {alertDraft.length > 0 ? `${alertDraft.length} chars` : 'Cmd+Enter to activate'}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setAlertOpen(false)}
-                    className="rounded-lg px-3 py-1.5 text-[13px] text-muted transition-colors hover:bg-soft hover:text-txt"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={activateAlert}
-                    disabled={!alertDraft.trim()}
-                    className="flex items-center gap-1.5 rounded-lg bg-warn px-4 py-1.5 text-[13px] font-semibold text-black transition-colors hover:bg-warn/90 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    Activate
-                  </button>
+              <div className="px-5 pt-4 pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: sm?.color }}>
+                    <BellRing className="h-4 w-4" />
+                    Compose Alert
+                  </div>
+                  {/* severity selector */}
+                  <div className="flex items-center gap-1">
+                    {ALERT_SEVERITIES.map((s) => (
+                      <button
+                        key={s.value}
+                        onClick={() => setAlertSeverity(s.value)}
+                        className="rounded-md px-2.5 py-1 text-[12px] font-semibold transition-all"
+                        style={
+                          alertSeverity === s.value
+                            ? { background: s.bg, color: s.color, borderWidth: 1, borderColor: s.border, borderStyle: 'solid' }
+                            : { color: '#62646D', borderWidth: 1, borderColor: 'transparent', borderStyle: 'solid' }
+                        }
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <textarea
+                  ref={textareaRef}
+                  value={alertDraft}
+                  onChange={(e) => setAlertDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) activateAlert()
+                    if (e.key === 'Escape') setAlertOpen(false)
+                  }}
+                  placeholder="Type your alert message…"
+                  rows={3}
+                  className="mt-3 w-full resize-none rounded-lg border border-border bg-soft px-3.5 py-2.5 text-[13.5px] text-txt placeholder:text-faint focus:outline-none focus:ring-1"
+                  style={{ '--tw-ring-color': sm?.color + '50' } as React.CSSProperties}
+                />
+                <div className="mt-2.5 flex items-center justify-between">
+                  <span className="text-[12px] text-faint">
+                    {alertDraft.length > 0 ? `${alertDraft.length} chars` : 'Cmd+Enter to activate'}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setAlertOpen(false)}
+                      className="rounded-lg px-3 py-1.5 text-[13px] text-muted transition-colors hover:bg-soft hover:text-txt"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={activateAlert}
+                      disabled={!alertDraft.trim()}
+                      className="flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ background: sm?.color, color: alertSeverity === 'low' || alertSeverity === 'medium' ? '#000' : '#fff' }}
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      Activate
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </motion.div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* active alert banner */}
-        {activeAlert && (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="relative mt-4 flex items-start justify-between gap-4 overflow-hidden rounded-xl border border-danger/40 bg-danger/5 px-5 py-4"
-          >
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-danger/70 to-transparent" />
-            <div className="flex items-start gap-3">
-              <span className="relative mt-0.5 flex h-2.5 w-2.5 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger" />
-              </span>
-              <div>
-                <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-danger">
-                  Active Alert
-                </div>
-                <p className="mt-0.5 text-[13.5px] leading-relaxed text-txt">{activeAlert}</p>
-              </div>
-            </div>
-            <button
-              onClick={dismissAlert}
-              className="shrink-0 rounded-lg p-1 text-muted transition-colors hover:bg-soft hover:text-txt"
+        <AnimatePresence>
+          {activeAlert && (
+            <motion.div
+              key="alert-active"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="relative mt-4 flex items-start justify-between gap-4 overflow-hidden rounded-xl border px-5 py-4"
+              style={{ borderColor: activeSm?.border, background: activeSm?.bg }}
             >
-              <X className="h-4 w-4" />
-            </button>
-          </motion.div>
-        )}
+              <div
+                className="pointer-events-none absolute inset-x-0 top-0 h-px"
+                style={{ background: `linear-gradient(to right, ${activeSm?.color}bb, transparent)` }}
+              />
+              <div className="flex items-start gap-3">
+                <span className="relative mt-1 flex h-2.5 w-2.5 shrink-0">
+                  {activeAlert.severity === 'critical' && (
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ background: activeSm?.color }} />
+                  )}
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full" style={{ background: activeSm?.color }} />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="text-[11px] font-semibold uppercase tracking-[0.14em]"
+                      style={{ color: activeSm?.color }}
+                    >
+                      Active Alert
+                    </span>
+                    <span
+                      className="rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                      style={{ background: activeSm?.bg, color: activeSm?.color, border: `1px solid ${activeSm?.border}` }}
+                    >
+                      {activeSm?.label}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[13.5px] leading-relaxed text-txt">{activeAlert.message}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveAlert(null)}
+                className="shrink-0 rounded-lg p-1 text-muted transition-colors hover:bg-soft hover:text-txt"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="mt-6">
           <PopulationClock />
@@ -336,6 +402,9 @@ function DashboardView({
           {cards.map((k, i) => (
             <KpiCard key={k.title} kpi={k} index={i} />
           ))}
+        </div>
+        <div className="mt-4">
+          <JordanMap />
         </div>
         <div className="mt-4"><DataTable onRun={onRun} service={service} query={query} /></div>
       </div>

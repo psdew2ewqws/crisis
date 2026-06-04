@@ -381,3 +381,27 @@ export const narrate = (req: NarrateRequest = {}): Promise<NarrateResponse> =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
   })
+
+// ============================================================= GOVERNORATE MAP
+export interface GovSignal {
+  record_id: string | null
+  service_id: string | null
+  text_clean: string | null
+  text: string | null
+  severity: Severity
+  sentiment_label: SentimentLabel
+  observed_at: string | null
+}
+
+export interface GovSummary {
+  gov: string
+  total: number
+  by_severity: Record<string, number>
+  signals: GovSignal[]
+  error?: string
+}
+
+const EMPTY_GOV: GovSummary = { gov: '', total: 0, by_severity: {}, signals: [] }
+
+export const getGovSignals = (gov: string): Promise<GovSummary> =>
+  jf<GovSummary>(`/api/gov-signals?gov=${encodeURIComponent(gov)}`, { ...EMPTY_GOV, gov })

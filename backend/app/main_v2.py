@@ -289,6 +289,58 @@ def _signals_fallback(filters: Dict[str, Any], limit: int, offset: int) -> Dict[
 
 
 # ===========================================================================
+# GOVERNORATE SUMMARY  (GET /api/gov-signals)
+# DB-level aggregation for the Jordan map panel. Accepts both Arabic and Latin
+# governorate names (the DB stores both forms across different rows).
+# Returns: total, severity breakdown, recent 12 signals, all in one query.
+# ===========================================================================
+_GOV_ALIASES: Dict[str, list] = {
+    "amman":   ["amman", "عمان"],
+    "zarqa":   ["zarqa", "الزرقاء"],
+    "irbid":   ["irbid", "إربد"],
+    "balqa":   ["balqa", "البلقاء"],
+    "mafraq":  ["mafraq", "المفرق"],
+    "madaba":  ["madaba", "مادبا"],
+    "karak":   ["karak", "الكرك"],
+    "tafilah": ["tafilah", "الطفيلة"],
+    "maan":    ["maan", "ma'an", "معان"],
+    "aqaba":   ["aqaba", "العقبة"],
+    "ajloun":  ["ajloun", "عجلون"],
+    "jerash":  ["jerash", "جرش"],
+}
+
+@router.get("/api/gov-signals")
+def gov_signals(gov: str = Query(...)) -> Dict[str, Any]:
+    """Return signal summary for a governorate (by id, e.g. 'amman', 'zarqa')."""
+    keys = _GOV_ALIASES.get(gov.lower(), [gov.lower()])
+    empty = {"gov": gov, "total": 0, "by_severity": {}, "signals": []}
+    if db is None:
+        return {**empty, "error": "data layer unavailable"}
+    try:
+        placeholders = ",".join(f"%(k{i})s" for i in range(len(keys)))
+        bind: Dict[str, Any] = {f"k{i}": k for i, k in enumerate(keys)}
+        where = f"where governorate in ({placeholders})"
+        total_row = db.fetchone(f"select count(*) n from the_data {where}", bind)
+        total = int(total_row["n"]) if total_row else 0
+        sev_rows = db.fetchall(
+            f"select coalesce(severity,'unknown') sev, count(*) n from the_data {where} group by sev",
+            bind,
+        )
+        by_severity = {r["sev"]: int(r["n"]) for r in (sev_rows or [])}
+        bind2 = {**bind, "lim": 12}
+        recent = db.fetchall(
+            f"""select record_id, service_id, text_clean, text, severity, sentiment_label, observed_at
+                from the_data {where}
+                order by observed_at desc nulls last
+                limit %(lim)s""",
+            bind2,
+        )
+        return {"gov": gov, "total": total, "by_severity": by_severity, "signals": recent or []}
+    except Exception as e:
+        return {**empty, "error": str(e)}
+
+
+# ===========================================================================
 # T2 — KPIS  (GET /api/kpis)
 # Wraps api_kpis.kpis() into the frontend's card-array contract.
 # ===========================================================================
