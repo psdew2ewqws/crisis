@@ -670,7 +670,33 @@ export const saveSolution = (body: SavedSolutionIn) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-export const getSolutions = () =>
-  j<{ solutions: { id: string; ts: string; scenario: string; title_ar: string; deliberated: boolean; n_turns: number }[] }>(
-    '/api/scenario/solutions')
+export interface SavedSolutionMeta { id: string; ts: string; scenario: string; title_ar: string; deliberated: boolean; n_turns: number }
+export const getSolutions = () => j<{ solutions: SavedSolutionMeta[] }>('/api/scenario/solutions')
+export const getSolution = (id: string) =>
+  j<{ id: string; ts: string; scenario: string; title_ar: string; transcript: DeliberationEvent[]; tallies: DeliberationEvent[]; report: ScenarioReportDoc; meta: Record<string, unknown> }>(
+    `/api/scenario/solution/${encodeURIComponent(id)}`)
 export const solutionMarkdownUrl = (id: string) => `${BASE}/api/scenario/solution/${encodeURIComponent(id)}.md`
+
+// ---- Background deliberation jobs (survive the UI closing) ----
+export interface DeliberationStatus {
+  ok: boolean
+  status: 'running' | 'done' | 'error'
+  iteration: number
+  turns: number
+  events: DeliberationEvent[]
+  total_events: number
+  report: ScenarioReportDoc | null
+  scenario: string
+  saved: boolean
+  solution_id?: string
+  error?: string
+}
+export const startDeliberationJob = (body: Record<string, unknown>) =>
+  j<{ ok: boolean; job_id?: string }>('/api/scenario/deliberate/start', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+export const getDeliberationStatus = (jobId: string, since = 0) =>
+  j<DeliberationStatus>(`/api/scenario/deliberate/status/${encodeURIComponent(jobId)}?since=${since}`)
+export const getActiveDeliberations = () =>
+  j<{ jobs: { job_id: string; scenario: string; status: string; iteration: number; turns: number; started: string; solution_id?: string }[] }>(
+    '/api/scenario/deliberate/active')

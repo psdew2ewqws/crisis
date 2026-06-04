@@ -128,6 +128,13 @@ try:
 except Exception:
     pass
 
+# Background deliberation jobs (survive the UI closing): POST /api/scenario/deliberate/start, etc.
+try:
+    from . import deliberation_jobs
+    app.include_router(deliberation_jobs.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():

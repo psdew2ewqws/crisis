@@ -16,8 +16,14 @@ import {
   streamScenario,
   getScenarioOptions,
   getScenarioReport,
-  streamDeliberate,
   saveSolution,
+  startDeliberationJob,
+  getDeliberationStatus,
+  getActiveDeliberations,
+  getSolutions,
+  getSolution,
+  solutionMarkdownUrl,
+  type SavedSolutionMeta,
   type DeliberationEvent,
   type ScenarioReportDoc,
   type ScenarioEvent,
@@ -43,7 +49,7 @@ import EvidencePanel from './EvidencePanel'
 import JordanDroughtStudy from './JordanDroughtStudy'
 import ScenarioReport, { type ReportData } from './ScenarioReport'
 import { downloadElementsAsPdf } from '../../lib/pdf'
-import { FileText, Download, X, Users, Loader2, MessagesSquare, Save, FileDown, Check } from 'lucide-react'
+import { FileText, Download, X, Users, Loader2, MessagesSquare, Save, FileDown, Check, History } from 'lucide-react'
 
 // Linear stage order — drives the stepper's "current = next logical stage".
 const STAGE_ORDER: StageKey[] = ['parse', 'retrieve', 'select_agents', 'simulate', 'detect_predict']
@@ -163,43 +169,109 @@ export default function ScenarioSimulation() {
   const [delibStatus, setDelibStatus] = useState<'idle' | 'running' | 'done'>('idle')
   const [delibMsg, setDelibMsg] = useState<string | null>(null)
   const [delibSynth, setDelibSynth] = useState<{ done: number; total: number; title: string } | null>(null)
-  const delibAbort = useRef<AbortController | null>(null)
+  const [delibIteration, setDelibIteration] = useState(0)
+  const [savedSol, setSavedSol] = useState(false)
+  const [savingSol, setSavingSol] = useState(false)
+  const [history, setHistory] = useState<SavedSolutionMeta[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [bgJob, setBgJob] = useState<{ job_id: string; scenario: string; iteration: number } | null>(null)
+  const delibPoll = useRef<number | null>(null)
+  const delibJobId = useRef<string | null>(null)
+  const delibCursor = useRef(0)
+
+  const loadHistory = useCallback(() => {
+    getSolutions().then((r) => setHistory(r.solutions ?? [])).catch(() => {})
+  }, [])
+
+  // Apply one streamed deliberation event to the UI (shared by live polling + re-attach).
+  const applyDelibEvent = (e: DeliberationEvent) => {
+    if (e.stage === 'agent') setDelibTurns((t) => [...t, e])
+    else if (e.stage === 'tally') setDelibTallies((t) => [...t, e])
+    else if (e.stage === 'fallback') setDelibMsg(e.message_ar ?? null)
+    else if (e.stage === 'synthesis') setDelibSynth({ done: 0, total: e.sections_total ?? 6, title: '' })
+    else if (e.stage === 'section') setDelibSynth({ done: e.index ?? 0, total: e.total ?? 6, title: e.title_ar ?? '' })
+  }
+
+  // Poll a background deliberation job. The job runs server-side, so it keeps going even
+  // if the modal closes; we just reflect its progress while mounted.
+  const pollJob = useCallback((jobId: string) => {
+    getDeliberationStatus(jobId, delibCursor.current)
+      .then((s) => {
+        if (!s.ok) { setDelibStatus('done'); setBgJob(null); return }
+        s.events.forEach(applyDelibEvent)
+        delibCursor.current = s.total_events
+        setDelibIteration(s.iteration)
+        setBgJob({ job_id: jobId, scenario: s.scenario, iteration: s.iteration })
+        if (s.report) {
+          setDelibSynth(null)
+          setReportDoc({
+            ok: true, sections: s.report.sections, key_figures: s.report.key_figures, references: s.report.references,
+            meta: { title_ar: 'تقرير حالة — مداولة الوكلاء', scenario: s.scenario || text,
+              report_no: `مداولة حيّة — ${s.iteration} جولة`, generated_at: '', flagship: sim?.engine === 'cascade' },
+          })
+        }
+        if (s.status === 'running') {
+          delibPoll.current = window.setTimeout(() => pollJob(jobId), 1500)
+        } else {
+          setDelibStatus('done')
+          setDelibSynth(null)
+          setBgJob(null)
+          if (s.saved) { setSavedSol(true); loadHistory() }
+        }
+      })
+      .catch(() => { delibPoll.current = window.setTimeout(() => pollJob(jobId), 2500) })
+  }, [text, sim, loadHistory])
 
   const startDeliberation = useCallback(async () => {
-    delibAbort.current?.abort()
-    const controller = new AbortController()
-    delibAbort.current = controller
-    setDelibTurns([])
-    setDelibTallies([])
-    setDelibMsg(null)
-    setDelibSynth(null)
-    setSavedSol(false)
+    if (delibPoll.current) { clearTimeout(delibPoll.current); delibPoll.current = null }
+    setDelibTurns([]); setDelibTallies([]); setDelibMsg(null); setDelibSynth(null)
+    setSavedSol(false); setDelibIteration(0); delibCursor.current = 0
     setDelibStatus('running')
     try {
-      await streamDeliberate(
-        { text, sim, detection: verdict?.detection, prediction: verdict?.prediction, confidence: verdict?.confidence, evidence, rounds: 3 },
-        (e) => {
-          if (e.stage === 'agent') setDelibTurns((t) => [...t, e])
-          else if (e.stage === 'tally') setDelibTallies((t) => [...t, e])
-          else if (e.stage === 'fallback') setDelibMsg(e.message_ar ?? null)
-          else if (e.stage === 'synthesis') setDelibSynth({ done: 0, total: e.sections_total ?? 6, title: '' })
-          else if (e.stage === 'section') setDelibSynth({ done: e.index ?? 0, total: e.total ?? 6, title: e.title_ar ?? '' })
-          else if (e.stage === 'report' && e.sections) {
-            setDelibSynth(null)
-            setReportDoc({
-              ok: true, sections: e.sections, key_figures: e.key_figures, references: e.references,
-              meta: { title_ar: e.deliberated ? 'تقرير حالة — مداولة الوكلاء' : 'تقرير حالة — محاكاة أزمة',
-                scenario: text, report_no: e.deliberated ? 'مداولة حيّة بين الوكلاء' : '01 — تقرير حتميّ',
-                generated_at: '', flagship: sim?.engine === 'cascade' },
-            })
-          } else if (e.stage === 'done') setDelibStatus('done')
-        },
-        controller.signal,
-      )
-    } catch {
+      const r = await startDeliberationJob({ text, sim, detection: verdict?.detection, prediction: verdict?.prediction, confidence: verdict?.confidence, evidence, rounds: 3 })
+      if (r.ok && r.job_id) { delibJobId.current = r.job_id; pollJob(r.job_id) }
+      else setDelibStatus('done')
+    } catch { setDelibStatus('done') }
+  }, [text, sim, verdict, evidence, pollJob])
+
+  // Re-attach to a still-running background deliberation on mount; load the history.
+  useEffect(() => {
+    loadHistory()
+    getActiveDeliberations()
+      .then((r) => {
+        const live = (r.jobs || []).find((jb) => jb.status === 'running')
+        if (live) setBgJob({ job_id: live.job_id, scenario: live.scenario, iteration: live.iteration })
+      })
+      .catch(() => {})
+    return () => { if (delibPoll.current) clearTimeout(delibPoll.current) }
+  }, [loadHistory])
+
+  // Resume watching a background job (started here earlier, or found on mount).
+  const resumeJob = useCallback((jobId: string) => {
+    if (delibPoll.current) { clearTimeout(delibPoll.current); delibPoll.current = null }
+    setDelibTurns([]); setDelibTallies([]); setDelibMsg(null); setDelibSynth(null)
+    delibCursor.current = 0
+    delibJobId.current = jobId
+    setShowReport(true)
+    setDelibStatus('running')
+    pollJob(jobId)
+  }, [pollJob])
+
+  // Open a saved solution from the history (its argument transcript + report).
+  const openSaved = useCallback((id: string) => {
+    if (delibPoll.current) { clearTimeout(delibPoll.current); delibPoll.current = null }
+    setShowHistory(false)
+    getSolution(id).then((sol) => {
+      setDelibTurns((sol.transcript || []).filter((e) => e.stage === 'agent'))
+      setDelibTallies((sol.tallies || []))
+      setDelibIteration(Number((sol.meta || {}).iterations) || 0)
       setDelibStatus('done')
-    }
-  }, [text, sim, verdict, evidence])
+      setDelibSynth(null)
+      setSavedSol(true)
+      setReportDoc({ ...(sol.report as ScenarioReportDoc), meta: { title_ar: sol.title_ar, scenario: sol.scenario, report_no: 'حلّ محفوظ', generated_at: sol.ts, flagship: false } })
+      setShowReport(true)
+    }).catch(() => {})
+  }, [])
 
   const openReport = useCallback(async () => {
     setReportDoc(null)
@@ -223,9 +295,6 @@ export default function ScenarioSimulation() {
       /* the fallback summary renders */
     }
   }, [text, sim, verdict, evidence])
-
-  const [savingSol, setSavingSol] = useState(false)
-  const [savedSol, setSavedSol] = useState(false)
 
   // Persist the deliberated solution (the agents' argument + the final report).
   const saveSolutionNow = useCallback(async () => {
@@ -678,6 +747,15 @@ export default function ScenarioSimulation() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => { setShowHistory((v) => !v); loadHistory() }}
+                  className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-[13.5px] text-white transition-colors hover:bg-white/20"
+                  title="سجلّ المحاكاة — الحلول المحفوظة"
+                >
+                  <History className="h-4 w-4" />
+                  <span dir="auto">السجل{history.length ? ` (${history.length})` : ''}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setShowReport(false)}
                   className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-[13.5px] text-white transition-colors hover:bg-white/20"
                 >
@@ -687,13 +765,61 @@ export default function ScenarioSimulation() {
               </div>
             </div>
 
+            {/* A deliberation still running server-side (found on mount or after closing) */}
+            {bgJob && delibStatus !== 'running' && (
+              <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-blue/40 bg-blue/10 px-3 py-2 text-[12.5px] text-blue" dir="auto">
+                <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> مداولة جارية في الخلفية — الجولة {bgJob.iteration}</span>
+                <button onClick={() => resumeJob(bgJob.job_id)} className="rounded-md border border-blue/40 px-2 py-1 font-medium transition-colors hover:bg-blue/20">استئناف المتابعة</button>
+              </div>
+            )}
+
+            {/* Simulation history — saved solutions, re-openable + downloadable */}
+            {showHistory && (
+              <div className="mb-3 max-h-[40vh] overflow-y-auto rounded-lg border border-border bg-card p-3">
+                <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-txt" dir="auto">
+                  <History className="h-4 w-4 text-blue" /> سجلّ المحاكاة ({history.length})
+                </div>
+                {history.length === 0 ? (
+                  <p className="text-[12.5px] text-faint" dir="auto">لا توجد حلول محفوظة بعد.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {history.map((h) => (
+                      <div key={h.id} className="flex items-center justify-between gap-2 rounded-md border border-border bg-bg px-2.5 py-1.5 text-[12px]">
+                        <button
+                          onClick={() => openSaved(h.id)}
+                          className="min-w-0 flex-1 text-right transition-colors hover:text-blue"
+                          dir="auto"
+                          title="فتح الحلّ المحفوظ"
+                        >
+                          <span className="block truncate text-txt">{h.scenario || h.title_ar}</span>
+                          <span className="text-[10.5px] text-faint">{h.ts?.slice(0, 16).replace('T', ' ')} · {h.n_turns} مداخلة{h.deliberated ? ' · مداولة' : ''}</span>
+                        </button>
+                        <a
+                          href={solutionMarkdownUrl(h.id)}
+                          download
+                          className="shrink-0 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-faint transition-colors hover:text-txt"
+                          title="تنزيل Markdown"
+                        >
+                          <FileDown className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Live deliberation transcript (UI only — not part of the PDF) */}
             {(delibTurns.length > 0 || delibMsg || delibStatus !== 'idle') && (
               <div className="mb-3 max-h-[40vh] overflow-y-auto rounded-lg border border-border bg-card p-4">
                 <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-txt">
                   <MessagesSquare className="h-4 w-4 text-blue" />
                   <span dir="auto">مداولة الوكلاء · تحليل وتفاوض حيّ</span>
+                  {delibIteration > 0 && (
+                    <span className="rounded bg-soft px-1.5 py-0.5 text-[11px] text-faint tnum" dir="auto">الجولة {delibIteration}</span>
+                  )}
                   {delibStatus === 'running' && <Loader2 className="h-3.5 w-3.5 animate-spin text-blue" />}
+                  {delibStatus === 'running' && <span className="text-[11px] text-faint" dir="auto">· تعمل في الخلفية</span>}
                 </div>
                 {delibMsg && (
                   <div className="mb-2 rounded-md border border-warn/30 bg-warn/10 p-2.5 text-[12.5px] text-warn" dir="auto">
