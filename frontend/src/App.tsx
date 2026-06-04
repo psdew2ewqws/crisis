@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Zap, Loader2, X, Check, BellRing, Send } from 'lucide-react'
+import { Zap, Loader2, X, Check, BellRing, Send, Phone, CheckCircle2, AlertTriangle, Users, Trash2, Save } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import Sidebar, { type CaseRow } from './components/Sidebar'
 import Topbar from './components/Topbar'
@@ -13,7 +13,7 @@ import SettingsDrawer from './components/SettingsDrawer'
 import HelpDrawer from './components/HelpDrawer'
 import ErrorBoundary from './components/ErrorBoundary'
 import { kpis as fallbackKpis, type Kpi, type Tone } from './lib/data'
-import { getKpis, getCases, runFlow, type CaseServiceRow, type FlowEvent } from './lib/voc'
+import { getKpis, getCases, runFlow, getSmsBalance, sendSmsAlert, getAlertGroups, saveAlertGroup, deleteAlertGroup, type AlertGroup, type CaseServiceRow, type FlowEvent } from './lib/voc'
 
 const RootCausePage = lazy(() => import('./pages/RootCausePage'))
 const SolutionsPage = lazy(() => import('./pages/SolutionsPage'))
@@ -198,6 +198,11 @@ function DashboardView({
   const [alertDraft, setAlertDraft] = useState('')
   const [alertSeverity, setAlertSeverity] = useState<AlertSeverity>('medium')
   const [activeAlert, setActiveAlert] = useState<ActiveAlertState | null>(null)
+  const [alertNumbers, setAlertNumbers] = useState('')
+  const [alertGroups, setAlertGroups] = useState<AlertGroup[]>([])
+  const [alertSending, setAlertSending] = useState(false)
+  const [alertResult, setAlertResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [smsBalance, setSmsBalance] = useState<number | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -210,15 +215,64 @@ function DashboardView({
 
   const openAlert = () => {
     setAlertOpen(true)
+    setAlertResult(null)
+    getSmsBalance().then((r) => setSmsBalance(r.balance)).catch(() => setSmsBalance(null))
+    getAlertGroups().then((g) => setAlertGroups(g.groups)).catch(() => {})
     setTimeout(() => textareaRef.current?.focus(), 50)
   }
 
-  const activateAlert = () => {
+  const parseNumbers = (s: string) => s.split(/[,\s;]+/).map((x) => x.trim()).filter(Boolean)
+
+  // Send the alert as real SMS (single or bulk), then raise the on-screen active banner.
+  const doSend = async (numbers: string[], groupId?: string, groupName?: string) => {
     const msg = alertDraft.trim()
-    if (!msg) return
-    setActiveAlert({ message: msg, severity: alertSeverity })
-    setAlertDraft('')
-    setAlertOpen(false)
+    if (!msg) { setAlertResult({ ok: false, text: 'اكتب نص التنبيه أولًا.' }); return }
+    if (!groupId && numbers.length === 0) { setAlertResult({ ok: false, text: 'أدخل رقمًا واحدًا على الأقل.' }); return }
+    if (alertSending) return
+    setAlertSending(true)
+    setAlertResult(null)
+    try {
+      const r = await sendSmsAlert(numbers, msg, groupId)
+      if (r.ok) {
+        setActiveAlert({ message: msg, severity: alertSeverity })
+        const where = groupName ? ` (${groupName})` : ''
+        setAlertResult({ ok: true, text: (r.message_ar ?? `تم إرسال التنبيه إلى ${r.sent_count ?? numbers.length} رقم.`) + where })
+        getSmsBalance().then((b) => setSmsBalance(b.balance)).catch(() => {})
+      } else {
+        const detail = r.results?.find((x) => !x.ok)?.response
+        setAlertResult({ ok: false, text: (r.message_ar ?? 'تعذّر الإرسال.') + (detail ? ` (${detail})` : '') })
+      }
+    } catch (e) {
+      setAlertResult({ ok: false, text: e instanceof Error ? e.message : 'تعذّر الاتصال بخدمة الإرسال.' })
+    } finally {
+      setAlertSending(false)
+    }
+  }
+
+  const activateAlert = () => doSend(parseNumbers(alertNumbers))
+  const sendToGroup = (g: AlertGroup) => doSend(g.numbers, g.id, g.name)
+
+  const saveGroup = async () => {
+    const nums = parseNumbers(alertNumbers)
+    if (nums.length === 0) { setAlertResult({ ok: false, text: 'أدخل أرقامًا لحفظها كمجموعة.' }); return }
+    const name = window.prompt('اسم المجموعة (مثال: قادة الميدان):')?.trim()
+    if (!name) return
+    try {
+      const r = await saveAlertGroup(name, nums)
+      if (r.ok) {
+        getAlertGroups().then((g) => setAlertGroups(g.groups)).catch(() => {})
+        setAlertResult({ ok: true, text: `حُفظت المجموعة «${name}» (${r.group?.count ?? nums.length} رقم).` })
+      } else {
+        setAlertResult({ ok: false, text: r.message_ar ?? 'تعذّر حفظ المجموعة.' })
+      }
+    } catch {
+      setAlertResult({ ok: false, text: 'تعذّر حفظ المجموعة.' })
+    }
+  }
+
+  const removeGroup = async (g: AlertGroup) => {
+    await deleteAlertGroup(g.id).catch(() => {})
+    getAlertGroups().then((x) => setAlertGroups(x.groups)).catch(() => {})
   }
 
   const sm = alertOpen ? sevMeta(alertSeverity) : null
@@ -304,6 +358,65 @@ function DashboardView({
                     ))}
                   </div>
                 </div>
+
+                {/* recipients — one or many numbers, comma-separated (bulk) */}
+                <div className="mt-3 flex items-stretch gap-2">
+                  <div
+                    className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-soft px-3 focus-within:ring-1"
+                    style={{ '--tw-ring-color': sm?.color + '50' } as React.CSSProperties}
+                  >
+                    <Phone className="h-4 w-4 shrink-0 text-faint" />
+                    <input
+                      type="text"
+                      value={alertNumbers}
+                      onChange={(e) => setAlertNumbers(e.target.value)}
+                      placeholder="أرقام الهواتف — افصل بفاصلة: 07XXXXXXXX, 07YYYYYYYY"
+                      dir="ltr"
+                      className="w-full bg-transparent py-2.5 text-[13.5px] text-txt placeholder:text-faint focus:outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={saveGroup}
+                    title="حفظ الأرقام كمجموعة"
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-[12.5px] text-muted transition-colors hover:border-warn/50 hover:text-warn"
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    حفظ مجموعة
+                  </button>
+                </div>
+
+                {/* saved groups — one tap to instant-send the message in bulk */}
+                {alertGroups.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 text-[11.5px] text-faint">
+                      <Users className="h-3.5 w-3.5" /> مجموعات:
+                    </span>
+                    {alertGroups.map((g) => (
+                      <span
+                        key={g.id}
+                        className="inline-flex items-center gap-1 rounded-full border border-border bg-soft py-0.5 pe-1 ps-2 text-[12px] text-txt"
+                      >
+                        <button
+                          onClick={() => sendToGroup(g)}
+                          disabled={alertSending}
+                          title={`إرسال التنبيه إلى ${g.name} (${g.count})`}
+                          className="inline-flex items-center gap-1 transition-colors hover:text-warn disabled:opacity-40"
+                        >
+                          <Send className="h-3 w-3" />
+                          <span dir="auto">{g.name}</span>
+                          <span className="text-faint">· {g.count}</span>
+                        </button>
+                        <button
+                          onClick={() => removeGroup(g)}
+                          title="حذف المجموعة"
+                          className="rounded-full p-0.5 text-faint transition-colors hover:bg-danger/10 hover:text-danger"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <textarea
                   ref={textareaRef}
                   value={alertDraft}
@@ -317,9 +430,28 @@ function DashboardView({
                   className="mt-3 w-full resize-none rounded-lg border border-border bg-soft px-3.5 py-2.5 text-[13.5px] text-txt placeholder:text-faint focus:outline-none focus:ring-1"
                   style={{ '--tw-ring-color': sm?.color + '50' } as React.CSSProperties}
                 />
+                {alertResult && (
+                  <div
+                    className={`mt-2.5 flex items-start gap-2 rounded-lg border px-3 py-2 text-[12.5px] ${
+                      alertResult.ok ? 'border-good/40 bg-good/10 text-good' : 'border-danger/40 bg-danger/10 text-danger'
+                    }`}
+                    dir="auto"
+                  >
+                    {alertResult.ok ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    )}
+                    <span>{alertResult.text}</span>
+                  </div>
+                )}
                 <div className="mt-2.5 flex items-center justify-between">
-                  <span className="text-[12px] text-faint">
-                    {alertDraft.length > 0 ? `${alertDraft.length} chars` : 'Cmd+Enter to activate'}
+                  <span className="text-[12px] text-faint" dir="auto">
+                    {smsBalance != null ? `الرصيد: ${smsBalance} رسالة · ` : ''}
+                    {(() => {
+                      const n = parseNumbers(alertNumbers).length
+                      return n > 0 ? `${n} مستلِم · ${alertDraft.length} حرف` : 'أدخل الأرقام والرسالة'
+                    })()}
                   </span>
                   <div className="flex items-center gap-2">
                     <button
@@ -330,12 +462,12 @@ function DashboardView({
                     </button>
                     <button
                       onClick={activateAlert}
-                      disabled={!alertDraft.trim()}
+                      disabled={!alertDraft.trim() || parseNumbers(alertNumbers).length === 0 || alertSending}
                       className="flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                       style={{ background: sm?.color, color: alertSeverity === 'low' || alertSeverity === 'medium' ? '#000' : '#fff' }}
                     >
-                      <Send className="h-3.5 w-3.5" />
-                      Activate
+                      {alertSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                      {alertSending ? 'جارٍ الإرسال…' : 'إرسال التنبيه'}
                     </button>
                   </div>
                 </div>

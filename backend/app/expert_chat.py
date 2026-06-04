@@ -114,8 +114,10 @@ def _is_ollama_native() -> bool:
     return "/v1" not in GEMMA_BASE_URL
 
 
-def _call_model(messages: List[Dict[str, str]]) -> tuple[str, bool]:
+def _call_model(messages: List[Dict[str, str]], num_predict: int = 512) -> tuple[str, bool]:
     """Call Gemma model; returns (text, model_available).
+    ``num_predict`` caps the generated length (callers that need a longer, complete
+    answer — e.g. a full report section — pass a higher budget).
     Falls back to offline message if unreachable."""
     if _is_ollama_native():
         url = f"{GEMMA_BASE_URL}/api/chat"
@@ -124,14 +126,14 @@ def _call_model(messages: List[Dict[str, str]]) -> tuple[str, bool]:
             "messages": messages,
             "stream": False,
             "think": LLM_THINK,
-            "options": {"num_predict": 512, "temperature": 0.3},
+            "options": {"num_predict": num_predict, "temperature": 0.3},
         }
     else:
         url = f"{GEMMA_BASE_URL}/v1/chat/completions"
         payload = {
             "model": GEMMA_MODEL,
             "messages": messages,
-            "max_tokens": 512,
+            "max_tokens": num_predict,
             "temperature": 0.3,
         }
 

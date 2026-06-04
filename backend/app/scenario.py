@@ -85,6 +85,49 @@ try:
     from . import report_writer
 except Exception:  # pragma: no cover
     report_writer = None  # type: ignore
+try:
+    from . import expert_chat as _ec
+except Exception:  # pragma: no cover
+    _ec = None  # type: ignore
+
+
+# AR/EN domain -> English scholarly-search seed (OpenAlex is English-indexed).
+_DOMAIN_QUERY = {
+    "water": "Jordan water scarcity supply crisis",
+    "health": "Jordan hospital emergency department overcrowding health system capacity",
+    "energy": "Jordan electricity power outage energy crisis",
+    "sanitation": "Jordan wastewater sanitation public health",
+    "waste": "Jordan solid waste management crisis",
+    "food": "Jordan food security prices import dependency",
+    "agriculture": "Jordan agriculture livestock drought impact",
+    "refugees": "Jordan refugees host community services strain",
+    "transport": "Jordan transport road congestion crisis",
+    "education": "Jordan education school capacity crisis",
+    "economy": "Jordan inflation economic crisis cost of living",
+    "environment": "Jordan environment climate crisis",
+    "disaster": "Jordan flood flash flood disaster response",
+}
+
+
+def _research_query(text: str, domain: str) -> str:
+    """Build an English scholarly-search query for ANY scenario (OpenAlex is English-only).
+    Prefer a quick local-model translation of the Arabic scenario; degrade to a domain seed."""
+    seed = _DOMAIN_QUERY.get((domain or "").lower(), "")
+    try:
+        if _ec is not None and _ec.model_available():
+            txt, ok = _ec._call_model([
+                {"role": "system", "content": "Convert an Arabic crisis scenario into a concise English "
+                 "academic search query. Output ONLY 5-8 English keywords — no Arabic, no punctuation, "
+                 "no explanation."},
+                {"role": "user", "content": (text or "").strip()[:500]},
+            ], num_predict=40)
+            kw = " ".join((txt or "").split())[:120]
+            has_arabic = any("؀" <= ch <= "ۿ" for ch in kw)
+            if ok and kw and not has_arabic:
+                return ("Jordan " + kw).strip()
+    except Exception:
+        pass
+    return seed or f"Jordan {domain or 'crisis'} public services"
 
 
 def _is_jordan_drought(text: str, case_hint: Optional[str]) -> bool:
@@ -766,15 +809,17 @@ def run_scenario(body: ScenarioIn) -> Iterator[bytes]:
                  "edge_weights", "baseline", "references", "label"]
     yield _ev("simulate", **{k: sim.get(k) for k in keys if k in sim}, escalation=esc)
 
-    # ---- evidence: real, verified references (legal research agent) ----
-    # OpenAlex is English-indexed, so the flagship uses a curated English query rather than
-    # the raw Arabic scenario text (which retrieves nothing).
-    if is_drought and research_agent is not None:
+    # ---- evidence: real, verified references (legal research agent) — for EVERY scenario ----
+    # OpenAlex is English-indexed, so we search with an English query: the drought flagship
+    # uses a curated seed; any other scenario gets one built from its domain / a model translation
+    # of the Arabic text (never the raw Arabic, which retrieves nothing).
+    if research_agent is not None:
         try:
-            ev = research_agent.gather(
-                "Jordan drought water scarcity groundwater agriculture", jordan=True, limit=6)
+            q = ("Jordan drought water scarcity groundwater agriculture"
+                 if is_drought else _research_query(text, domain))
+            ev = research_agent.gather(q, jordan=True, limit=6)
             yield _ev("evidence", items=ev.get("evidence", []),
-                      count=len(ev.get("evidence", [])), abstained=ev.get("abstained"))
+                      count=len(ev.get("evidence", [])), abstained=ev.get("abstained"), query=q)
         except Exception:
             pass
 

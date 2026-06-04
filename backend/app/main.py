@@ -114,6 +114,20 @@ try:
 except Exception:
     pass
 
+# SMS alerts via the josms.net gateway: GET /api/alert/balance, POST /api/alert/send
+try:
+    from . import alerts
+    app.include_router(alerts.router)
+except Exception:
+    pass
+
+# Saved solutions (deliberated argument + report): POST /api/scenario/solution/save, etc.
+try:
+    from . import saved_solutions
+    app.include_router(saved_solutions.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health():

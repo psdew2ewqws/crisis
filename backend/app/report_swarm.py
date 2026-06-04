@@ -88,6 +88,13 @@ def _facts_block(payload: Dict[str, Any]) -> str:
     refs = (sim.get("references") or [])[:6]
     if refs:
         lines.append("مراجع متاحة: " + "؛ ".join(r.get("name", "") for r in refs if r.get("name")))
+    # Verified legal scholarly evidence (OpenAlex/Crossref/Unpaywall...) — for the agents to cite.
+    evid = (payload.get("evidence") or [])[:5]
+    cited = [f"{(e.get('title') or '').strip()[:90]}"
+             f"{' (' + str(e.get('year')) + ')' if e.get('year') else ''}"
+             for e in evid if e.get("title")]
+    if cited:
+        lines.append("أدلّة علمية مُتحقَّقة للاستشهاد (لا تختلق غيرها): " + "؛ ".join(cited))
     return "\n".join(lines)
 
 
@@ -95,31 +102,32 @@ def _ev(stage: str, **d: Any) -> bytes:
     return (json.dumps({"stage": stage, **d}, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def _turn(system_extra: str, user: str) -> str:
+def _turn(system_extra: str, user: str, num_predict: int = 460) -> str:
     if _ec is None:
         return ""
     txt, _ok = _ec._call_model([
         {"role": "system", "content": _BASE_SYS + " " + system_extra},
         {"role": "user", "content": user},
-    ])
+    ], num_predict=num_predict)
     return (txt or "").strip()
 
 
-def _parse_sections(text: str) -> List[Dict[str, Any]]:
-    """Split a synthesized report (## headings) into {title_ar, paragraphs}."""
-    out: List[Dict[str, Any]] = []
-    cur = None
-    for line in (text or "").splitlines():
-        h = re.match(r"^\s*#{1,3}\s+(.*)", line)
-        if h:
-            if cur:
-                out.append(cur)
-            cur = {"title_ar": h.group(1).strip(), "title_en": "", "paragraphs": []}
-        elif line.strip() and cur:
-            cur["paragraphs"].append(line.strip())
-    if cur:
-        out.append(cur)
-    return out or [{"title_ar": "التقرير", "title_en": "", "paragraphs": [p for p in (text or "").split("\n\n") if p.strip()]}]
+# Final-report skeleton: the coordinator writes each section as its own (untruncated)
+# call so the report is complete and rich, every section grounded in the live debate.
+_REPORT_SECTIONS = [
+    ("الملخّص التنفيذي", "Executive Summary",
+     "اكتب الملخّص التنفيذي (الخلاصة أولًا): ما القرار الحاسم الذي ينبغي اتّخاذه الآن ولماذا، في 3–4 جمل مستندة للأرقام."),
+    ("التقييم العام", "Overall Assessment",
+     "اكتب التقييم العام: الشدّة والاتجاه، وأين تقع الرافعة الأكثر أثرًا، وكم نقطة يشتريها التدخّل في الطلب وفق الأرقام."),
+    ("التحليل متعدّد القطاعات", "Multi-Sector Analysis",
+     "حلّل القطاعات الأربعة (إمداد المياه، الزراعة، الجوفية، الاجتماعي): لكلٍّ الاحتياج ثمّ الاستجابة ثمّ الفجوة، مستندًا لأرقام الإجهاد."),
+    ("الأثر الاقتصادي وسلاسل الانتقال الغذائية", "Economic & Food Transmission",
+     "اشرح الأثر الاقتصادي وقنوات الانتقال الغذائية (الأعلاف، الثروة الحيوانية، الأسعار، العملة)، وصحّح مغالطة «مجاعة الخبز» بالأرقام."),
+    ("نطاق عدم اليقين", "Uncertainty Range",
+     "اشرح عدم اليقين: مدى مونتي كارلو P10/P50/P90 ولماذا يُخطَّط على الطرف المرتفع ويُبرَز الوسيط."),
+    ("التوصيات المرتّبة", "Prioritized Recommendations",
+     "اكتب التوصيات مرتّبة بالأولوية: فوريًّا هذا الموسم، ثمّ قصير/متوسط الأمد، ثمّ بنيويًّا بعيد الأمد؛ كلٌّ مشروط بمؤشّر قابل للقياس."),
+]
 
 
 class DeliberateIn(BaseModel):
@@ -156,7 +164,8 @@ def deliberate(payload: Dict[str, Any]) -> Iterator[bytes]:
     for p in PERSONAS:
         text = _turn(
             f"دورك: {p['name']} — {p['role']}",
-            f"الحقائق المشتركة:\n{facts}\n\nحلّل مجالك بعمق في فقرتين: ما استنتاجك وما مبرّره بالأرقام؟ ابدأ مباشرة.")
+            f"الحقائق المشتركة:\n{facts}\n\nحلّل مجال اختصاصك أنت فقط في فقرتين موجزتين: ما استنتاجك وما مبرّره "
+            f"بالأرقام المعطاة؟ لا تكتب تقريرًا كاملًا ولا ترويسات «إلى/من/تقرير حالة» — ابدأ مباشرة بالتحليل.")
         if not text:
             continue
         transcript.append(f"[{p['name']}] {text}")
@@ -175,7 +184,7 @@ def deliberate(payload: Dict[str, Any]) -> Iterator[bytes]:
             text = _turn(
                 f"دورك: {p['name']} — {p['role']}",
                 f"الحقائق:\n{facts}\n\nالمداولة حتى الآن:\n{prior}\n\nخاطِب زميلًا بالاسم: وافقه أو اعترض عليه مع التبرير "
-                f"بالأرقام، ثم اقترح تعديلًا محدّدًا على التقرير. جملتان أو ثلاث، ابدأ مباشرة.")
+                f"بالأرقام، ثم اقترح تعديلًا محدّدًا على التقرير. جملتان أو ثلاث فقط، بلا ترويسات تقرير، ابدأ مباشرة.")
             if not text:
                 continue
             transcript.append(f"[{p['name']} · ج{r}] {text}")
@@ -196,19 +205,34 @@ def deliberate(payload: Dict[str, Any]) -> Iterator[bytes]:
         converged = ready >= 3   # majority of the 4-member panel
         yield _ev("tally", round=r, ready=ready, total=len(_VOTERS), converged=converged)
 
-    # ---- Synthesis: the lead integrates the debate into a reasoned report ----
+    # ---- Synthesis: the coordinator writes a COMPLETE, rich report — one
+    #      untruncated call PER section, each grounded in the facts + the live debate,
+    #      so nothing is cut off the way a single 512-token call was. ----
+    yield _ev("synthesis", message_ar="يصيغ المُنسّق التقرير النهائي من خلاصة المداولة، قسمًا بقسم…",
+              sections_total=len(_REPORT_SECTIONS))
     debate = "\n".join(transcript)
-    synth = _turn(
-        "دورك: المُنسّق — تكتب التقرير النهائي.",
-        f"الحقائق:\n{facts}\n\nمداولة الفريق:\n{debate}\n\nاكتب تقرير الحالة النهائي مدمجًا خلاصة المداولة، نثرًا "
-        f"عربيًّا رسميًّا غنيًّا، بأقسام يبدأ كلٌّ منها بعنوان «## ». ضمّن: الملخّص التنفيذي، التقييم العام، التحليل "
-        f"متعدّد القطاعات، الأثر الاقتصادي، عدم اليقين، التوصيات المرتّبة. أسنِد كل رقم إلى الحقائق ولا تختلق.")
-    sections = _parse_sections(synth) if synth else []
-    if not sections and report_writer is not None:
-        sections = report_writer.render(payload)["sections"]
-    kf = report_writer.render(payload)["key_figures"] if report_writer else []
-    refs = report_writer.render(payload)["references"] if report_writer else {}
-    yield _ev("report", sections=sections, key_figures=kf, references=refs, deliberated=True)
+    converged_note = "وصل الفريق إلى توافق." if converged else "لم يكتمل التوافق؛ التقرير يدمج الخلاف المتبقّي."
+    sections: List[Dict[str, Any]] = []
+    for i, (title_ar, title_en, instruction) in enumerate(_REPORT_SECTIONS, 1):
+        body = _turn(
+            "دورك: المُنسّق الذي يكتب التقرير النهائي لصانع القرار مدمجًا خلاصة مداولة الفريق.",
+            f"الحقائق:\n{facts}\n\nمداولة الفريق (استند إليها صراحةً):\n{debate}\n\nالمطلوب الآن — {instruction}\n"
+            "ادخل في صلب هذا القسم مباشرة دون مقدّمة ودون إعادة تلخيص الوضع العام ودون عنوان ودون ترويسات «إلى/من». "
+            "اكتب نثرًا عربيًّا رسميًّا غنيًّا (فقرة إلى فقرتين). أسنِد كل رقم إلى الحقائق المعطاة ولا تختلق رقمًا.",
+            num_predict=700)
+        paras = [p.strip() for p in re.split(r"\n+", body or "")
+                 if p.strip() and not p.strip().startswith("#")]
+        if paras:
+            sections.append({"title_ar": title_ar, "title_en": title_en, "paragraphs": paras})
+        yield _ev("section", index=i, total=len(_REPORT_SECTIONS), title_ar=title_ar, ok=bool(paras))
+
+    # Key figures + references stay deterministic & sourced (exact numbers, never model-made).
+    det = report_writer.render(payload) if report_writer else {"sections": [], "key_figures": [], "references": {}}
+    if len(sections) < 3:                      # model under-produced → fall back to the rich template
+        sections = det["sections"]
+    yield _ev("report", sections=sections, key_figures=det.get("key_figures", []),
+              references=det.get("references", {}), deliberated=True, converged=converged,
+              converged_note=converged_note)
     yield _ev("done", deliberated=True, turns=len(transcript))
 
 

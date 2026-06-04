@@ -17,6 +17,7 @@ import {
   getScenarioOptions,
   getScenarioReport,
   streamDeliberate,
+  saveSolution,
   type DeliberationEvent,
   type ScenarioReportDoc,
   type ScenarioEvent,
@@ -42,7 +43,7 @@ import EvidencePanel from './EvidencePanel'
 import JordanDroughtStudy from './JordanDroughtStudy'
 import ScenarioReport, { type ReportData } from './ScenarioReport'
 import { downloadElementsAsPdf } from '../../lib/pdf'
-import { FileText, Download, X, Users, Loader2, MessagesSquare } from 'lucide-react'
+import { FileText, Download, X, Users, Loader2, MessagesSquare, Save, FileDown, Check } from 'lucide-react'
 
 // Linear stage order — drives the stepper's "current = next logical stage".
 const STAGE_ORDER: StageKey[] = ['parse', 'retrieve', 'select_agents', 'simulate', 'detect_predict']
@@ -57,6 +58,56 @@ interface VerdictState {
   detection: ScenarioEvent['detection']
   prediction: ScenarioEvent['prediction']
   confidence: ScenarioEvent['confidence']
+}
+
+const PHASE_AR: Record<string, string> = { analysis: 'تحليل', negotiation: 'تفاوض', vote: 'تصويت' }
+
+// Render the saved solution (the agents' argument + the final report) as Markdown for download.
+function buildSolutionMarkdown(
+  scenario: string,
+  turns: DeliberationEvent[],
+  tallies: DeliberationEvent[],
+  doc: ScenarioReportDoc | null,
+): string {
+  const L: string[] = []
+  L.push(`# ${doc?.meta?.title_ar ?? 'تقرير حلّ — AEGIS'}`, '')
+  L.push(`**السيناريو:** ${scenario}`, '')
+  if (turns.length) {
+    L.push('## مداولة الوكلاء (المحضر)', '')
+    for (const t of turns) {
+      const ph = PHASE_AR[t.phase ?? ''] ?? (t.phase ?? '')
+      L.push(`### ${t.persona ?? ''} — ${ph}${t.round ? ` · جولة ${t.round}` : ''}`)
+      L.push((t.text ?? '').trim(), '')
+    }
+    for (const v of tallies) {
+      L.push(`> تصويت جولة ${v.round}: ${v.ready}/${v.total} جاهز — ${v.converged ? 'توافق ✓' : 'لم يكتمل التوافق'}`)
+    }
+    L.push('')
+  }
+  const kf = doc?.key_figures ?? []
+  if (kf.length) {
+    L.push('## الأرقام الرئيسية', '')
+    for (const r of kf) L.push(`- **${r.label}:** ${r.value}${r.source ? `  _( ${r.source} )_` : ''}`)
+    L.push('')
+  }
+  for (const s of doc?.sections ?? []) {
+    L.push(`## ${s.title_ar || s.title_en || ''}`, '')
+    for (const p of s.paragraphs ?? []) L.push(p.trim(), '')
+  }
+  L.push('---', 'AEGIS Crisis Console · لدعم القرار فقط — لا توقّع للواقع.')
+  return L.join('\n')
+}
+
+function downloadTextFile(filename: string, text: string) {
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 export default function ScenarioSimulation() {
@@ -111,6 +162,7 @@ export default function ScenarioSimulation() {
   const [delibTallies, setDelibTallies] = useState<DeliberationEvent[]>([])
   const [delibStatus, setDelibStatus] = useState<'idle' | 'running' | 'done'>('idle')
   const [delibMsg, setDelibMsg] = useState<string | null>(null)
+  const [delibSynth, setDelibSynth] = useState<{ done: number; total: number; title: string } | null>(null)
   const delibAbort = useRef<AbortController | null>(null)
 
   const startDeliberation = useCallback(async () => {
@@ -120,6 +172,8 @@ export default function ScenarioSimulation() {
     setDelibTurns([])
     setDelibTallies([])
     setDelibMsg(null)
+    setDelibSynth(null)
+    setSavedSol(false)
     setDelibStatus('running')
     try {
       await streamDeliberate(
@@ -128,7 +182,10 @@ export default function ScenarioSimulation() {
           if (e.stage === 'agent') setDelibTurns((t) => [...t, e])
           else if (e.stage === 'tally') setDelibTallies((t) => [...t, e])
           else if (e.stage === 'fallback') setDelibMsg(e.message_ar ?? null)
+          else if (e.stage === 'synthesis') setDelibSynth({ done: 0, total: e.sections_total ?? 6, title: '' })
+          else if (e.stage === 'section') setDelibSynth({ done: e.index ?? 0, total: e.total ?? 6, title: e.title_ar ?? '' })
           else if (e.stage === 'report' && e.sections) {
+            setDelibSynth(null)
             setReportDoc({
               ok: true, sections: e.sections, key_figures: e.key_figures, references: e.references,
               meta: { title_ar: e.deliberated ? 'تقرير حالة — مداولة الوكلاء' : 'تقرير حالة — محاكاة أزمة',
@@ -150,6 +207,7 @@ export default function ScenarioSimulation() {
     setDelibTallies([])
     setDelibStatus('idle')
     setDelibMsg(null)
+    setDelibSynth(null)
     setShowReport(true)
     try {
       const doc = await getScenarioReport({
@@ -165,6 +223,37 @@ export default function ScenarioSimulation() {
       /* the fallback summary renders */
     }
   }, [text, sim, verdict, evidence])
+
+  const [savingSol, setSavingSol] = useState(false)
+  const [savedSol, setSavedSol] = useState(false)
+
+  // Persist the deliberated solution (the agents' argument + the final report).
+  const saveSolutionNow = useCallback(async () => {
+    if (!reportDoc || savingSol) return
+    setSavingSol(true)
+    try {
+      const r = await saveSolution({
+        scenario: text,
+        transcript: delibTurns.map((t) => ({ persona: t.persona, role: t.role, round: t.round, phase: t.phase, text: t.text })),
+        tallies: delibTallies.map((v) => ({ round: v.round, ready: v.ready, total: v.total, converged: v.converged })),
+        report: reportDoc,
+        meta: { deliberated: delibTurns.length > 0, engine: sim?.engine ?? null },
+      })
+      if (r.ok) setSavedSol(true)
+    } catch {
+      /* leave un-saved; the download still works */
+    } finally {
+      setSavingSol(false)
+    }
+  }, [reportDoc, text, delibTurns, delibTallies, sim, savingSol])
+
+  // Download the argument + report as a Markdown file (works offline, no save needed).
+  const downloadSolutionMarkdown = useCallback(() => {
+    if (!reportDoc) return
+    const md = buildSolutionMarkdown(text, delibTurns, delibTallies, reportDoc)
+    const stamp = new Date().toISOString().slice(0, 10)
+    downloadTextFile(`AEGIS-Solution-${stamp}.md`, md)
+  }, [reportDoc, text, delibTurns, delibTallies])
 
   const downloadReport = useCallback(async () => {
     const main = document.getElementById('aegis-report')
@@ -560,6 +649,26 @@ export default function ScenarioSimulation() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onClick={saveSolutionNow}
+                  disabled={!reportDoc || savingSol}
+                  className="flex items-center gap-2 rounded-lg border border-good/40 bg-good/15 px-3.5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-good/25 disabled:opacity-50"
+                  title="حفظ الحلّ (محضر المداولة + التقرير) لاسترجاعه لاحقًا"
+                >
+                  {savingSol ? <Loader2 className="h-4 w-4 animate-spin" /> : savedSol ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                  <span dir="auto">{savedSol ? 'حُفِظ ✓' : savingSol ? 'يحفظ…' : 'حفظ الحلّ'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadSolutionMarkdown}
+                  disabled={!reportDoc}
+                  className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3.5 py-2 text-[13.5px] text-white transition-colors hover:bg-white/20 disabled:opacity-50"
+                  title="تنزيل المحضر + التقرير كملف Markdown"
+                >
+                  <FileDown className="h-4 w-4" />
+                  <span dir="auto">تنزيل (Markdown)</span>
+                </button>
+                <button
+                  type="button"
                   onClick={downloadReport}
                   disabled={downloading}
                   className="flex items-center gap-2 rounded-lg bg-blue px-4 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#2f76e8] disabled:opacity-60"
@@ -620,6 +729,16 @@ export default function ScenarioSimulation() {
                       <span>{v.converged ? '· توافق ✓ (التقرير جاهز)' : '· لم يكتمل التوافق — جولة أخرى'}</span>
                     </div>
                   ))}
+                  {delibSynth && (
+                    <div className="rounded-md border border-blue/30 bg-blue/10 px-2.5 py-1.5 text-[12px] text-blue" dir="auto">
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span className="font-medium">يصيغ المُنسّق التقرير النهائي</span>
+                        <span className="tnum">{delibSynth.done}/{delibSynth.total}</span>
+                        {delibSynth.title && <span className="text-muted">· {delibSynth.title}</span>}
+                      </span>
+                    </div>
+                  )}
                   {delibStatus === 'done' && delibTurns.length > 0 && (
                     <div className="rounded-md border border-good/30 bg-good/10 px-2.5 py-1.5 text-[12px] text-good" dir="auto">
                       اكتملت المداولة · التقرير أدناه مبنيّ على نقاش الوكلاء.

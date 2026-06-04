@@ -77,6 +77,36 @@ export const getRootCause = () => j<{ root_causes: RootCause[]; recommendation: 
 export const getStats = () => j<Record<string, number>>('/api/stats')
 export const getHealth = () => j<{ ok: boolean; database?: string; error?: string }>('/api/health')
 
+// ---- SMS alerts (josms.net gateway, server-side) ----
+export interface AlertSendResult {
+  ok: boolean
+  configured?: boolean
+  sent_to?: string[]
+  sent_count?: number
+  invalid?: string[]
+  error?: string
+  message_ar?: string
+  results?: { numbers: string[]; http: number; response: string; ok: boolean }[]
+}
+export interface AlertGroup { id: string; name: string; numbers: string[]; count: number; ts?: string }
+export const getSmsBalance = () =>
+  j<{ ok: boolean; configured: boolean; balance: number | null; raw?: string }>('/api/alert/balance')
+export const sendSmsAlert = (numbers: string[], message: string, groupId?: string) =>
+  j<AlertSendResult>('/api/alert/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(groupId ? { group_id: groupId, message } : { numbers, message }),
+  })
+export const getAlertGroups = () => j<{ groups: AlertGroup[] }>('/api/alert/groups')
+export const saveAlertGroup = (name: string, numbers: string[]) =>
+  j<{ ok: boolean; group?: AlertGroup; invalid?: string[]; message_ar?: string }>('/api/alert/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, numbers }),
+  })
+export const deleteAlertGroup = (id: string) =>
+  j<{ ok: boolean }>(`/api/alert/groups/${encodeURIComponent(id)}`, { method: 'DELETE' })
+
 // ============================================================= PROOF DRILL-DOWN
 // Click a graph node → GET /api/proof gives the full PROOF of a problem:
 // the 5-whys causal trace, structured validation, evidence quotes, the real
@@ -516,7 +546,7 @@ export async function getScenarioReport(body: {
 // Live multi-agent deliberation that REASONS + negotiates the report (needs a reachable
 // model; streams agent turns then the final reasoned report). Falls back to the instant report.
 export interface DeliberationEvent {
-  stage: 'preflight' | 'agent' | 'tally' | 'fallback' | 'report' | 'done'
+  stage: 'preflight' | 'agent' | 'tally' | 'fallback' | 'synthesis' | 'section' | 'report' | 'done'
   model_ok?: boolean
   model?: string
   persona?: string
@@ -529,11 +559,17 @@ export interface DeliberationEvent {
   ready?: number
   total?: number
   converged?: boolean
+  // synthesis progress (the coordinator writes the report section by section)
+  sections_total?: number
+  index?: number
+  title_ar?: string
+  ok?: boolean
   // report
   sections?: ReportSection[]
   key_figures?: ReportKeyFigure[]
   references?: ScenarioReportDoc['references']
   deliberated?: boolean
+  converged_note?: string
   turns?: number
 }
 export async function streamDeliberate(
@@ -619,3 +655,22 @@ export async function retainScenario(body: ScenarioRetainInput): Promise<{ store
   })
   return res.json()
 }
+
+// ---- Saved solutions (the agents' deliberated argument + the final report) ----
+export interface SavedSolutionIn {
+  scenario: string
+  transcript?: { persona?: string; role?: string; round?: number; phase?: string; text?: string }[]
+  tallies?: { round?: number; ready?: number; total?: number; converged?: boolean }[]
+  report?: ScenarioReportDoc | null
+  meta?: Record<string, unknown>
+}
+export const saveSolution = (body: SavedSolutionIn) =>
+  j<{ ok: boolean; id?: string; message_ar?: string }>('/api/scenario/solution/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+export const getSolutions = () =>
+  j<{ solutions: { id: string; ts: string; scenario: string; title_ar: string; deliberated: boolean; n_turns: number }[] }>(
+    '/api/scenario/solutions')
+export const solutionMarkdownUrl = (id: string) => `${BASE}/api/scenario/solution/${encodeURIComponent(id)}.md`
