@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import jordanData from '../lib/jordan-geojson'
 import {
-  getGovSignals, getNews, getNewsAnalysis, severityTone, toneColor,
+  getGovSignals, getNews, severityTone, toneColor,
   type GovSummary, type NewsItem, type NewsByGov,
 } from '../lib/voc2'
 
@@ -595,68 +595,67 @@ export default function JordanMap() {
             )
           })}
         </svg>
-      </div>
 
-      {/* live-news marker overlay — pinned to gov centroids; positions are
-          zoom-adjusted so markers track the visible SVG area when drilled in */}
-      <div className="pointer-events-none absolute inset-0 z-20">
-        {Object.entries(news.by_gov).map(([gov, items]) => {
-          if (!items || items.length === 0) return null
-          const c = GOV_CENTROID[gov]
-          if (!c) return null
-          const [cx, cy] = c
-          // Adjust for current zoom: map viewBox coords → container %.
-          const screenX = ((cx - vb.x) / vb.w) * 100
-          const screenY = ((cy - vb.y) / vb.h) * 100
-          // Hide markers scrolled outside the current viewBox.
-          if (screenX < -5 || screenX > 105 || screenY < -5 || screenY > 105) return null
-          const isOpen = openMarker === gov
-          return (
+        {/* live-news marker overlay — inside the relative wrapper so absolute
+            positioning is relative to the SVG area, not the full card */}
+        <div className="pointer-events-none absolute inset-0 z-20">
+          {Object.entries(news.by_gov).map(([gov, items]) => {
+            if (!items || items.length === 0) return null
+            const c = GOV_CENTROID[gov]
+            if (!c) return null
+            const [cx, cy] = c
+            // Adjust for current zoom: map viewBox coords → container %.
+            const screenX = ((cx - vb.x) / vb.w) * 100
+            const screenY = ((cy - vb.y) / vb.h) * 100
+            // Hide markers scrolled outside the current viewBox.
+            if (screenX < -5 || screenX > 105 || screenY < -5 || screenY > 105) return null
+            const isOpen = openMarker === gov
+            return (
+              <button
+                key={gov}
+                onClick={e => { e.stopPropagation(); setOpenMarker(p => (p === gov ? null : gov)) }}
+                onMouseEnter={() => setHovered(null)}
+                title={`${GOV_NAME[gov] ?? gov} — ${items.length} news`}
+                className="pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border px-1.5 py-1 font-mono text-[10px] font-semibold shadow-lg transition-transform hover:scale-110"
+                style={{
+                  left: `${screenX}%`,
+                  top: `${screenY}%`,
+                  background: isOpen ? '#3b82f6' : 'rgba(59,130,246,0.92)',
+                  borderColor: isOpen ? '#dbeafe' : '#93c5fd',
+                  color: '#fff',
+                }}
+              >
+                <Newspaper className="h-3 w-3" />
+                {items.length}
+              </button>
+            )
+          })}
+
+          {/* national pill — always bottom-left */}
+          {news.national.length > 0 && (
             <button
-              key={gov}
-              onClick={e => { e.stopPropagation(); setOpenMarker(p => (p === gov ? null : gov)) }}
-              onMouseEnter={() => setHovered(null)}
-              title={`${GOV_NAME[gov] ?? gov} — ${items.length} news`}
-              className="pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border px-1.5 py-1 font-mono text-[10px] font-semibold shadow-lg transition-transform hover:scale-110"
-              style={{
-                left: `${screenX}%`,
-                top: `${screenY}%`,
-                background: isOpen ? '#3b82f6' : 'rgba(59,130,246,0.92)',
-                borderColor: isOpen ? '#dbeafe' : '#93c5fd',
-                color: '#fff',
-              }}
+              onClick={e => { e.stopPropagation(); setOpenMarker(p => (p === NATIONAL ? null : NATIONAL)) }}
+              className="pointer-events-auto absolute bottom-8 left-3 flex items-center gap-1.5 rounded-full border border-blue/50 bg-card/90 px-2.5 py-1 text-[11px] font-medium text-blue shadow-lg backdrop-blur transition-colors hover:bg-soft"
             >
-              <Newspaper className="h-3 w-3" />
-              {items.length}
+              <Newspaper className="h-3.5 w-3.5" />
+              National · {news.national.length}
             </button>
-          )
-        })}
-
-        {/* national pill — always bottom-left */}
-        {news.national.length > 0 && (
-          <button
-            onClick={e => { e.stopPropagation(); setOpenMarker(p => (p === NATIONAL ? null : NATIONAL)) }}
-            className="pointer-events-auto absolute bottom-8 left-3 flex items-center gap-1.5 rounded-full border border-blue/50 bg-card/90 px-2.5 py-1 text-[11px] font-medium text-blue shadow-lg backdrop-blur transition-colors hover:bg-soft"
-          >
-            <Newspaper className="h-3.5 w-3.5" />
-            National · {news.national.length}
-          </button>
-        )}
-
-        {/* popup */}
-        <AnimatePresence>
-          {openMarker && openItems.length > 0 && (
-            <NewsPopup
-              key={openMarker}
-              items={openItems}
-              govName={openName}
-              gov={openMarker}
-              side={popupSide}
-              onClose={() => setOpenMarker(null)}
-            />
           )}
-        </AnimatePresence>
-      </div>
+
+          {/* popup */}
+          <AnimatePresence>
+            {openMarker && openItems.length > 0 && (
+              <NewsPopup
+                key={openMarker}
+                items={openItems}
+                govName={openName}
+                gov={openMarker}
+                side={popupSide}
+                onClose={() => setOpenMarker(null)}
+              />
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* details panel — slides in below the map */}

@@ -433,7 +433,7 @@ export interface ScenarioMonteCarlo {
 }
 export interface ScenarioReference { name: string; url: string }
 export interface ScenarioEvent {
-  stage: 'parse' | 'retrieve' | 'history' | 'select_agents' | 'simulate' | 'debate' | 'detect_predict' | 'solution_eval' | 'evidence' | 'done'
+  stage: 'parse' | 'retrieve' | 'history' | 'news_context' | 'select_agents' | 'simulate' | 'debate' | 'detect_predict' | 'solution_eval' | 'evidence' | 'done'
   // parse
   script?: 'ar' | 'latin'
   domain?: string
@@ -466,6 +466,9 @@ export interface ScenarioEvent {
   references?: ScenarioReference[]
   baseline?: Record<string, { value: unknown; kind?: string; source_url?: string; note?: string }>
   label?: string
+  // news_context stage (live RSS articles from aegis_news for the location)
+  gov?: string
+  articles?: { title: string; source: string; published: string | null; summary?: string }[]
   // evidence stage (verified references from the legal research agent)
   items?: ScenarioEvidence[]
   abstained?: boolean
