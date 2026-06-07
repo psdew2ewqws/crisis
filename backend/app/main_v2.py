@@ -89,6 +89,7 @@ linker = _opt_import("linker") or _opt_import("cluster_link")
 solutions_mod = _opt_import("solutions")
 decisions_mod = _opt_import("decisions")
 llm_mod = _opt_import("llm")
+news_rss = _opt_import("news_rss")
 
 
 router = APIRouter()
@@ -363,6 +364,123 @@ def gov_signals(
         return {**base, "error": str(e)}
 
     return {"gov": gov, "total": total, "by_severity": by_severity, "signals": signals}
+
+
+# ===========================================================================
+# LIVE NEWS  (GET /api/news)
+# Google News RSS per governorate, geolocated + TTL-cached (see news_rss.py).
+# ===========================================================================
+@router.get("/api/news")
+def news(force: bool = Query(default=False)) -> Dict[str, Any]:
+    """Live RSS news grouped by Jordan governorate (Google News, TTL-cached)."""
+    if news_rss is None:
+        return {"generated_at": _now_iso(), "total": 0, "by_gov": {},
+                "national": [], "source": "fallback", "error": "news module unavailable"}
+    try:
+        return news_rss.get_news_by_gov(force=force)
+    except Exception as e:
+        return {"generated_at": _now_iso(), "total": 0, "by_gov": {},
+                "national": [], "source": "fallback", "error": str(e)}
+
+
+# ===========================================================================
+# NEWS ANALYSIS  (GET /api/news-analysis)
+# Composite view: recent DB news + signal summary + suggested scenario text.
+# Used by the map "Analyze in Simulation" button to pre-fill the scenario page.
+# ===========================================================================
+_DOMAIN_KW: Dict[str, List[str]] = {
+    "water":      ["ماء", "مياه", "شُح", "جفاف", "خزان", "سدّ", "ري"],
+    "health":     ["صحة", "مستشفى", "طوارئ", "وباء", "مرض", "وفاة", "علاج"],
+    "transport":  ["طريق", "حادث", "مرور", "ازدحام", "حافلة", "bus", "road"],
+    "energy":     ["كهرباء", "غاز", "طاقة", "انقطاع", "وقود"],
+    "food":       ["غذاء", "أسعار", "تضخم", "نقص", "بضائع"],
+    "security":   ["أمن", "جريمة", "حادثة", "سلامة", "اعتقال"],
+    "disaster":   ["سيول", "فيضان", "زلزال", "حريق", "كارثة"],
+    "economy":    ["اقتصاد", "بطالة", "فقر", "ديون", "ميزانية"],
+    "education":  ["تعليم", "مدرسة", "جامعة", "طلاب", "مناهج"],
+    "refugees":   ["لاجئين", "نازحين", "مخيم", "تهجير"],
+}
+
+
+def _classify_domain(texts: List[str]) -> str:
+    blob = " ".join(texts).lower()
+    scores: Dict[str, int] = {}
+    for dom, kws in _DOMAIN_KW.items():
+        scores[dom] = sum(1 for kw in kws if kw in blob)
+    top = max(scores, key=lambda d: scores[d], default="general")
+    return top if scores.get(top, 0) > 0 else "general"
+
+
+@router.get("/api/news-analysis")
+def news_analysis(gov: str = Query(...)) -> Dict[str, Any]:
+    """Composite analysis for a governorate: recent news + signals + scenario pre-fill text."""
+    empty: Dict[str, Any] = {
+        "gov": gov, "articles": [], "article_count": 0,
+        "domains": [], "signal_total": 0, "by_severity": {},
+        "scenario_text": "", "generated_at": _now_iso(),
+    }
+    if db is None:
+        return {**empty, "error": "data layer unavailable"}
+    try:
+        # Recent news from DB
+        art_rows = db.fetchall(
+            "SELECT title, summary, source, gov, "
+            "to_char(published AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS published "
+            "FROM aegis_news WHERE gov = %s ORDER BY published DESC NULLS LAST LIMIT 20",
+            (gov,),
+        )
+        articles = [dict(r) for r in (art_rows or [])]
+
+        # Signal summary from the_data
+        keys = _GOV_ALIASES.get(gov.lower(), [gov.lower()])
+        placeholders = ",".join(f"%(k{i})s" for i in range(len(keys)))
+        bind: Dict[str, Any] = {f"k{i}": k for i, k in enumerate(keys)}
+        where = f"where governorate in ({placeholders})"
+        total_row = db.fetchone(f"select count(*) n from the_data {where}", bind)
+        signal_total = int(total_row["n"]) if total_row else 0
+        sev_rows = db.fetchall(
+            f"select coalesce(severity,'unknown') sev, count(*) n "
+            f"from the_data {where} group by sev", bind,
+        )
+        by_severity = {r["sev"]: int(r["n"]) for r in (sev_rows or [])}
+
+        # Crisis domain detection from news titles
+        titles = [a.get("title", "") for a in articles]
+        top_domain = _classify_domain(titles)
+        domains = [top_domain] if top_domain != "general" else []
+
+        # Build a suggested scenario text (Arabic) from top headlines
+        gov_ar: Dict[str, str] = {
+            "amman": "عمّان", "zarqa": "الزرقاء", "irbid": "إربد",
+            "balqa": "البلقاء", "mafraq": "المفرق", "madaba": "مادبا",
+            "karak": "الكرك", "tafilah": "الطفيلة", "maan": "معان",
+            "aqaba": "العقبة", "ajloun": "عجلون", "jerash": "جرش",
+        }
+        gov_name = gov_ar.get(gov, gov)
+        if articles:
+            snippets = " — ".join(a["title"] for a in articles[:3])
+            scenario_text = f"أزمة في محافظة {gov_name}: {snippets}"
+        elif signal_total > 0:
+            crit = by_severity.get("critical", 0)
+            scenario_text = (
+                f"تصاعد الشكاوى في {gov_name}: {signal_total} إشارة"
+                + (f"، منها {crit} حالة حرجة" if crit else "")
+            )
+        else:
+            scenario_text = f"وضع طارئ في محافظة {gov_name}"
+
+        return {
+            "gov": gov,
+            "articles": articles,
+            "article_count": len(articles),
+            "domains": domains,
+            "signal_total": signal_total,
+            "by_severity": by_severity,
+            "scenario_text": scenario_text,
+            "generated_at": _now_iso(),
+        }
+    except Exception as e:
+        return {**empty, "error": str(e)}
 
 
 # ===========================================================================

@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { X, AlertTriangle, Building2, Hospital, Loader2, ZoomOut } from 'lucide-react'
+import {
+  X, AlertTriangle, Building2, Hospital, Loader2, ZoomOut, Newspaper, ExternalLink, FlaskConical,
+} from 'lucide-react'
 import jordanData from '../lib/jordan-geojson'
-import { getGovSignals, severityTone, toneColor, type GovSummary } from '../lib/voc2'
+import {
+  getGovSignals, getNews, getNewsAnalysis, severityTone, toneColor,
+  type GovSummary, type NewsItem, type NewsByGov,
+} from '../lib/voc2'
 
 // ── Projection ────────────────────────────────────────────────────────────────
 const MIN_LON = 34.75, MAX_LON = 39.55
@@ -102,6 +107,26 @@ const LABEL_OFFSET: Record<string, [number, number]> = {
   // Northern trio (Irbid · Ajlun · Jarash) is tightly packed — nudge the small
   // Ajlun/Jarash labels apart so all 12 names render without overlapping.
   Ajlun: [-5, -7], Jarash: [11, 9],
+}
+
+// Per-governorate centroid in viewBox space, keyed by backend gov id.
+const GOV_CENTROID: Record<string, [number, number]> = Object.fromEntries(
+  jordanData.features.map(f => [GOV_ID[f.properties.NAME_1], centroid(f.geometry)]),
+)
+// gov id → English display name (reverse of GOV_ID)
+const GOV_NAME: Record<string, string> = Object.fromEntries(
+  Object.entries(GOV_ID).map(([en, id]) => [id, en === 'Ma`an' ? "Ma'an" : en]),
+)
+
+function relTime(iso: string | null): string {
+  if (!iso) return ''
+  const ms = new Date(iso).getTime()
+  if (Number.isNaN(ms)) return ''
+  const s = (Date.now() - ms) / 1000
+  if (s < 90) return 'just now'
+  if (s < 3600) return `${Math.round(s / 60)}m ago`
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`
+  return `${Math.round(s / 86400)}d ago`
 }
 
 // ── Static facility data ──────────────────────────────────────────────────────
@@ -302,6 +327,99 @@ function DetailsPanel({
   )
 }
 
+// ── Live-news popup ─────────────────────────────────────────────────────────
+function simulateArticle(gov: string, article: NewsItem, allItems: NewsItem[]) {
+  // Build scenario text from the chosen article: title + summary.
+  const text = article.summary && article.summary.trim() && article.summary.trim() !== article.title.trim()
+    ? `${article.title} — ${clip(article.summary, 200)}`
+    : article.title
+  sessionStorage.setItem(
+    'aegis_scenario_prefill',
+    JSON.stringify({ text, location: gov, articles: allItems.slice(0, 20) }),
+  )
+  window.dispatchEvent(new CustomEvent('aegis:navigate', { detail: 'Simulation' }))
+}
+
+function NewsPopup({
+  items, govName, gov, side, onClose,
+}: { items: NewsItem[]; govName: string; gov: string; side: 'left' | 'right'; onClose: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.96, y: 6 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.97, y: 4 }}
+      transition={{ duration: 0.16, ease: 'easeOut' }}
+      className={`pointer-events-auto absolute top-3 z-30 w-[min(340px,calc(100%-1.5rem))] overflow-hidden rounded-xl border border-border bg-card shadow-2xl shadow-black/50 ${
+        side === 'left' ? 'left-3' : 'right-3'
+      }`}
+    >
+      <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
+        <div className="flex items-center gap-1.5 text-[12px] font-semibold text-txt">
+          <Newspaper className="h-3.5 w-3.5 text-blue" />
+          {govName}
+          <span className="rounded bg-soft px-1.5 py-0.5 font-mono text-[10px] text-faint">
+            {items.length}
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded-lg p-1 text-muted transition-colors hover:bg-soft hover:text-txt"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {gov && gov !== '__national__' && (
+        <div className="border-b border-border/50 bg-soft/30 px-3.5 py-2 text-[10.5px] text-faint">
+          Click <FlaskConical className="inline h-3 w-3 text-blue" /> on any article to simulate that scenario
+        </div>
+      )}
+
+      <ul className="max-h-[340px] divide-y divide-border/60 overflow-y-auto">
+        {items.map(n => (
+          <li key={n.id} className="group/row relative px-3.5 py-2.5 transition-colors hover:bg-soft/40">
+            {/* per-article Simulate button — shown on row hover */}
+            {gov && gov !== '__national__' && (
+              <button
+                onClick={() => simulateArticle(gov, n, items)}
+                title="Simulate this scenario"
+                className="absolute right-2 top-2.5 flex items-center gap-1 rounded-md border border-blue/40 bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue opacity-0 transition-opacity group-hover/row:opacity-100 hover:bg-blue/20"
+              >
+                <FlaskConical className="h-3 w-3" />
+                Simulate
+              </button>
+            )}
+
+            <a
+              href={n.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group/link flex items-start gap-1.5 pr-16 text-[12.5px] font-medium leading-snug text-txt transition-colors hover:text-blue"
+              dir={isAr(n.title) ? 'rtl' : 'ltr'}
+            >
+              <span className="flex-1">{n.title}</span>
+              <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-faint opacity-0 transition-opacity group-hover/link:opacity-100" />
+            </a>
+            {n.summary && n.summary.trim() !== n.title.trim() && (
+              <p
+                className="mt-1 text-[11px] leading-relaxed text-muted line-clamp-2"
+                dir={isAr(n.summary) ? 'rtl' : 'ltr'}
+              >
+                {clip(n.summary, 140)}
+              </p>
+            )}
+            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-faint">
+              <span className="truncate" dir={isAr(n.source) ? 'rtl' : 'ltr'}>{n.source}</span>
+              {n.published && <span>·</span>}
+              {n.published && <span className="font-mono">{relTime(n.published)}</span>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </motion.div>
+  )
+}
+
 // ── Map ───────────────────────────────────────────────────────────────────────
 export default function JordanMap() {
   const [hovered,  setHovered]  = useState<string | null>(null)
@@ -310,6 +428,19 @@ export default function JordanMap() {
   const [vb, setVb] = useState<ViewBox>(FULL_VIEW)
   const vbRef = useRef<ViewBox>(FULL_VIEW)
   const rafRef = useRef<number | undefined>(undefined)
+  const [news, setNews] = useState<NewsByGov>({
+    generated_at: '', total: 0, by_gov: {}, national: [], source: 'fallback',
+  })
+  const [openMarker, setOpenMarker] = useState<string | null>(null) // gov id, or '__national__'
+
+  // Poll live news every 60s (backend serves from a 5-min TTL cache).
+  useEffect(() => {
+    let alive = true
+    const load = () => getNews().then(n => { if (alive) setNews(n) })
+    load()
+    const t = setInterval(load, 60000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
 
   const toggle = (name: string) =>
     setSelected(prev => (prev === name ? null : name))
@@ -341,16 +472,36 @@ export default function JordanMap() {
     return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current) }
   }, [selected])
 
-  // Zoom factor in user-space (≤1 when drilled in). Strokes are non-scaling, but
-  // text scales with the viewBox — counter-scale the font so labels stay legible.
+  // Zoom factor in user-space (≤1 when drilled in).
   const k = vb.w / W
+
+  const NATIONAL = '__national__'
+  const openItems: NewsItem[] =
+    openMarker === NATIONAL ? news.national
+    : openMarker ? (news.by_gov[openMarker] ?? [])
+    : []
+  const openName =
+    openMarker === NATIONAL ? 'National · Jordan'
+    : openMarker ? (GOV_NAME[openMarker] ?? openMarker)
+    : ''
+  const popupSide: 'left' | 'right' =
+    openMarker && openMarker !== NATIONAL && (GOV_CENTROID[openMarker]?.[0] ?? 0) < W / 2
+      ? 'right' : 'left'
 
   return (
     <div className="w-full group relative overflow-hidden rounded-xl border border-border bg-card transition-[border-color,box-shadow] duration-200 hover:border-border/80 hover:shadow-xl hover:shadow-black/20">
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-gradient-to-r from-blue/60 to-transparent" />
 
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
-        <div className="text-[13px] font-semibold text-txt">Jordan — Governorate Map</div>
+        <div className="flex items-center gap-2 text-[13px] font-semibold text-txt">
+          Jordan — Governorate Map
+          {news.total > 0 && (
+            <span className="flex items-center gap-1 rounded-full border border-blue/40 bg-blue/10 px-2 py-0.5 text-[10px] font-medium text-blue">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue" />
+              {news.total} live
+            </span>
+          )}
+        </div>
         <div className="text-[12px] text-faint">
           {hovered && !selected ? (
             <span className="font-medium text-txt">
@@ -367,6 +518,8 @@ export default function JordanMap() {
         </div>
       </div>
 
+      {/* SVG + live-news overlay (own relative box so markers track the SVG,
+          not the full card height once the details panel expands below) */}
       <div className="relative">
         <AnimatePresence>
           {selected && (
@@ -444,6 +597,69 @@ export default function JordanMap() {
         </svg>
       </div>
 
+      {/* live-news marker overlay — pinned to gov centroids; positions are
+          zoom-adjusted so markers track the visible SVG area when drilled in */}
+      <div className="pointer-events-none absolute inset-0 z-20">
+        {Object.entries(news.by_gov).map(([gov, items]) => {
+          if (!items || items.length === 0) return null
+          const c = GOV_CENTROID[gov]
+          if (!c) return null
+          const [cx, cy] = c
+          // Adjust for current zoom: map viewBox coords → container %.
+          const screenX = ((cx - vb.x) / vb.w) * 100
+          const screenY = ((cy - vb.y) / vb.h) * 100
+          // Hide markers scrolled outside the current viewBox.
+          if (screenX < -5 || screenX > 105 || screenY < -5 || screenY > 105) return null
+          const isOpen = openMarker === gov
+          return (
+            <button
+              key={gov}
+              onClick={e => { e.stopPropagation(); setOpenMarker(p => (p === gov ? null : gov)) }}
+              onMouseEnter={() => setHovered(null)}
+              title={`${GOV_NAME[gov] ?? gov} — ${items.length} news`}
+              className="pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border px-1.5 py-1 font-mono text-[10px] font-semibold shadow-lg transition-transform hover:scale-110"
+              style={{
+                left: `${screenX}%`,
+                top: `${screenY}%`,
+                background: isOpen ? '#3b82f6' : 'rgba(59,130,246,0.92)',
+                borderColor: isOpen ? '#dbeafe' : '#93c5fd',
+                color: '#fff',
+              }}
+            >
+              <Newspaper className="h-3 w-3" />
+              {items.length}
+            </button>
+          )
+        })}
+
+        {/* national pill — always bottom-left */}
+        {news.national.length > 0 && (
+          <button
+            onClick={e => { e.stopPropagation(); setOpenMarker(p => (p === NATIONAL ? null : NATIONAL)) }}
+            className="pointer-events-auto absolute bottom-8 left-3 flex items-center gap-1.5 rounded-full border border-blue/50 bg-card/90 px-2.5 py-1 text-[11px] font-medium text-blue shadow-lg backdrop-blur transition-colors hover:bg-soft"
+          >
+            <Newspaper className="h-3.5 w-3.5" />
+            National · {news.national.length}
+          </button>
+        )}
+
+        {/* popup */}
+        <AnimatePresence>
+          {openMarker && openItems.length > 0 && (
+            <NewsPopup
+              key={openMarker}
+              items={openItems}
+              govName={openName}
+              gov={openMarker}
+              side={popupSide}
+              onClose={() => setOpenMarker(null)}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+      </div>
+
+      {/* details panel — slides in below the map */}
       <AnimatePresence>
         {selected && (
           <DetailsPanel

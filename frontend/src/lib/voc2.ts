@@ -405,3 +405,53 @@ const EMPTY_GOV: GovSummary = { gov: '', total: 0, by_severity: {}, signals: [] 
 
 export const getGovSignals = (gov: string): Promise<GovSummary> =>
   jf<GovSummary>(`/api/gov-signals?gov=${encodeURIComponent(gov)}`, { ...EMPTY_GOV, gov })
+
+// ============================================================= LIVE NEWS
+// Google News RSS, one search per governorate (Arabic), geolocated + TTL-cached
+// server-side. Each item is a marker on the Jordan map; clustered per gov.
+export interface NewsItem {
+  id: string
+  title: string
+  summary: string
+  source: string
+  link: string
+  published: string | null
+  gov: string | null
+}
+
+export interface NewsByGov {
+  generated_at: string
+  ttl_seconds?: number
+  total: number
+  by_gov: Record<string, NewsItem[]>
+  national: NewsItem[]
+  source: 'google_news_rss' | 'fallback'
+  error?: string
+}
+
+const EMPTY_NEWS: NewsByGov = {
+  generated_at: '', total: 0, by_gov: {}, national: [], source: 'fallback',
+}
+
+export const getNews = (): Promise<NewsByGov> => jf<NewsByGov>('/api/news', EMPTY_NEWS)
+
+// Composite per-governorate analysis: recent news + signal summary + suggested scenario text.
+export interface NewsAnalysis {
+  gov: string
+  articles: NewsItem[]
+  article_count: number
+  domains: string[]
+  signal_total: number
+  by_severity: Record<string, number>
+  scenario_text: string
+  generated_at: string
+  error?: string
+}
+
+const EMPTY_ANALYSIS: NewsAnalysis = {
+  gov: '', articles: [], article_count: 0, domains: [],
+  signal_total: 0, by_severity: {}, scenario_text: '', generated_at: '',
+}
+
+export const getNewsAnalysis = (gov: string): Promise<NewsAnalysis> =>
+  jf<NewsAnalysis>(`/api/news-analysis?gov=${encodeURIComponent(gov)}`, { ...EMPTY_ANALYSIS, gov })

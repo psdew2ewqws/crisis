@@ -570,6 +570,16 @@ export default function App() {
     }
   }, [])
 
+  // Listen for cross-component navigation events (e.g. "Analyze in Simulation" from the map).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const target = (e as CustomEvent<string>).detail
+      if (target) setView(target)
+    }
+    window.addEventListener('aegis:navigate', handler)
+    return () => window.removeEventListener('aegis:navigate', handler)
+  }, [])
+
   const cases = useMemo<CaseRow[]>(() => services.map(toCaseRow), [services])
 
   const selectCase = (id: string) => {

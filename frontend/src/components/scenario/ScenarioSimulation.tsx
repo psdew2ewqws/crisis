@@ -135,6 +135,21 @@ export default function ScenarioSimulation() {
       .catch(() => { /* dropdowns just stay empty */ })
   }, [])
 
+  // Read sessionStorage pre-fill written by the map "Analyze in Simulation" button.
+  // Articles are stored in a ref so they can be included in the next run body.
+  const prefillArticlesRef = useRef<object[]>([])
+  useEffect(() => {
+    const raw = sessionStorage.getItem('aegis_scenario_prefill')
+    if (!raw) return
+    try {
+      const prefill = JSON.parse(raw) as { text?: string; location?: string; articles?: object[] }
+      if (prefill.text) setText(prefill.text)
+      if (prefill.location) setLocation(prefill.location)
+      if (prefill.articles?.length) prefillArticlesRef.current = prefill.articles
+    } catch { /* ignore malformed */ }
+    sessionStorage.removeItem('aegis_scenario_prefill')
+  }, [])
+
   // ── accumulated stage data ──────────────────────────────────────────────
   const [parse, setParse] = useState<{
     script: 'ar' | 'latin'
@@ -162,6 +177,9 @@ export default function ScenarioSimulation() {
   const [evidenceShown, setEvidenceShown] = useState(false)
   const [evidenceAbstained, setEvidenceAbstained] = useState(false)
   const [showReport, setShowReport] = useState(false)
+  const [newsContext, setNewsContext] = useState<{
+    gov: string | null; articles: { title: string; source: string; published: string | null }[]
+  } | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [reportDoc, setReportDoc] = useState<ScenarioReportDoc | null>(null)
   const [delibTurns, setDelibTurns] = useState<DeliberationEvent[]>([])
@@ -365,6 +383,7 @@ export default function ScenarioSimulation() {
     setEvidence([])
     setEvidenceShown(false)
     setEvidenceAbstained(false)
+    setNewsContext(null)
   }, [])
 
   const onEvent = useCallback((e: ScenarioEvent) => {
@@ -385,6 +404,9 @@ export default function ScenarioSimulation() {
         setRetrieved(true)
         setDoneStages((d) => [...d, 'retrieve'])
         setCurrent(nextStage('retrieve'))
+        break
+      case 'news_context':
+        setNewsContext({ gov: e.gov ?? null, articles: e.articles ?? [] })
         break
       case 'history':
         setPastRuns(e.runs ?? [])
@@ -465,6 +487,9 @@ export default function ScenarioSimulation() {
     setRunning(true)
     setCurrent('parse')
 
+    const articles = prefillArticlesRef.current.length > 0
+      ? prefillArticlesRef.current.splice(0) // consume once per run
+      : undefined
     const body = {
       text: txt,
       run_debate: runDebate,
@@ -472,6 +497,7 @@ export default function ScenarioSimulation() {
       location: location || undefined,
       service: service || undefined,
       solution: solution.trim() || undefined,
+      ...(articles ? { rss_articles: articles } : {}),
     }
 
     try {
@@ -637,6 +663,33 @@ export default function ScenarioSimulation() {
         {sim && sim.engine === 'cascade' && (
           <div className="mt-6">
             <JordanDroughtStudy sim={sim} />
+          </div>
+        )}
+
+        {/* Live news context — articles fetched from aegis_news for the location */}
+        {newsContext && newsContext.articles.length > 0 && (
+          <div className="mt-6 rounded-xl border border-border bg-card p-4">
+            <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue" />
+              Live News Context
+              <span className="rounded bg-soft px-1.5 py-0.5 font-mono normal-case tracking-normal">
+                {newsContext.articles.length} articles
+              </span>
+            </div>
+            <ul className="space-y-2 max-h-[220px] overflow-y-auto">
+              {newsContext.articles.map((a, i) => (
+                <li key={i} className="flex items-start gap-2 rounded-lg border border-border/50 bg-soft/40 px-3 py-2">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue/70" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] font-medium leading-snug text-txt" dir="rtl">{a.title}</p>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-faint" dir="rtl">
+                      <span>{a.source}</span>
+                      {a.published && <><span>·</span><span className="font-mono">{a.published.slice(0,10)}</span></>}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

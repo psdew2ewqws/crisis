@@ -178,6 +178,11 @@ class ScenarioIn(BaseModel):
     location: Optional[str] = None      # governorate (from the dropdown)
     service: Optional[str] = None       # service_id (from the dropdown)
     solution: Optional[str] = None      # operator's proposed solution to validate/optimize
+    # Live RSS news articles to use as contextual evidence (from /api/news or /api/news-analysis).
+    # These appear as a "Live News Context" panel in the UI and are passed to agents as
+    # supplementary observations — they do NOT enter the confidence calculation so they
+    # cannot inflate the analytical verdict.
+    rss_articles: Optional[List[Dict[str, Any]]] = None
 
 
 class RetainIn(BaseModel):
@@ -756,6 +761,31 @@ def run_scenario(body: ScenarioIn) -> Iterator[bytes]:
         flags.append("recency_inert")
     yield _ev("retrieve", count=len(cases),
               cases=[_citation(c) for c in cases], best_relevance=round(best_rel, 4))
+
+    # ---- live news context (does NOT affect confidence — observation layer only) ----
+    news_articles: List[Dict[str, Any]] = list(body.rss_articles or [])
+    if not news_articles and body.location and db is not None:
+        # Auto-fetch up to 20 recent articles for the requested governorate.
+        try:
+            rows = db.fetchall(
+                "SELECT title, summary, source, gov, "
+                "to_char(published AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS published "
+                "FROM aegis_news WHERE gov = %s ORDER BY published DESC NULLS LAST LIMIT 20",
+                (body.location,),
+            )
+            news_articles = [dict(r) for r in (rows or [])]
+        except Exception:
+            news_articles = []
+    if news_articles:
+        yield _ev("news_context", count=len(news_articles),
+                  gov=body.location,
+                  articles=[{
+                      "title":     a.get("title", ""),
+                      "summary":   (a.get("summary") or "")[:200],
+                      "source":    a.get("source", ""),
+                      "gov":       a.get("gov"),
+                      "published": a.get("published"),
+                  } for a in news_articles[:20]])
 
     # ---- recall similar PAST RUNS (learning memory) ----
     if scenario_runs is not None:
