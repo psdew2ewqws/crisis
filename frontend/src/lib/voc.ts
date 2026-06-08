@@ -707,9 +707,21 @@ export interface AbmReportDoc {
   key_figures?: ReportKeyFigure[]
   sections?: ReportSection[]
 }
+export interface AbmCaseStudy {
+  id: number
+  title: string
+  country: string
+  disaster_type: string
+  source_site: string
+  crisis: string
+  impact: string
+  solution: string
+  impact_numbers: { deaths?: number | null; displaced?: number | null; affected?: number | null }
+  geo_tier: 0 | 1 | 2   // 0=Jordan, 1=Middle East, 2=global
+}
 export interface AbmEvent {
-  stage: 'intake' | 'seed_society' | 'research_intake' | 'calibrate' | 'simulate_problem'
-    | 'simulate_solution' | 'compare' | 'impact_crisis' | 'impact_solution'
+  stage: 'intake' | 'seed_society' | 'research_intake' | 'case_studies' | 'calibrate'
+    | 'simulate_problem' | 'simulate_solution' | 'compare' | 'impact_crisis' | 'impact_solution'
     | 'reports' | 'synthesize' | 'error' | 'done'
   status?: string
   detail?: string
@@ -737,6 +749,8 @@ export interface AbmEvent {
   insights?: AbmResearchInsights
   query?: string
   shock_used?: number
+  // case_studies stage
+  cases?: AbmCaseStudy[]
   // impact timeline stages
   timeline?: AbmImpactTimeline
   // reports stage

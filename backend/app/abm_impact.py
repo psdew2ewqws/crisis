@@ -395,10 +395,98 @@ def simulate_impact(
     intensity: float = 0.6, effect_size: float = 0.6, intervene: bool = False,
     lags: Optional[Dict[str, int]] = None, papers: Optional[List[Dict[str, Any]]] = None,
     interventions: Optional[List[str]] = None,
+    case_studies: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Produce a concrete step-by-step impact timeline (deterministic, LLM-enriched)."""
+    """Produce a concrete step-by-step impact timeline (deterministic, case-grounded, LLM-enriched).
+
+    case_studies (from ai_case_studies table) add two things:
+      1. Real impact figures blended into the deterministic baseline.
+      2. Case solutions fed into the LLM narrative as proven precedents.
+    """
     govs = _resolve_govs(location)
     lags = lags or {"detection_lag": 4, "decision_lag": 3, "ramp_ticks": 6}
     base = _deterministic_timeline(text, domain, govs, intensity, effect_size, intervene, lags)
-    enriched = _llm_timeline(text, base, papers or [], intervene, interventions or [])
+
+    # Blend real case impact numbers into the baseline totals when available
+    if case_studies:
+        base = _blend_case_numbers(base, case_studies, govs)
+
+    # Build combined evidence: papers + case study solutions for the LLM
+    all_evidence = list(papers or [])
+    for c in (case_studies or [])[:3]:
+        if c.get("solution"):
+            all_evidence.append({
+                "title": c.get("title", ""),
+                "year": None,
+                "snippet": f"الحل الموثّق: {c['solution'][:300]}",
+            })
+
+    enriched = _llm_timeline(text, base, all_evidence, intervene,
+                             interventions or [c.get("solution","")[:80] for c in (case_studies or [])[:2]])
     return enriched or base
+
+
+def _blend_case_numbers(base: Dict[str, Any],
+                        case_studies: List[Dict[str, Any]],
+                        govs: List[str]) -> Dict[str, Any]:
+    """Blend real case impact numbers (from ai_case_studies) into the deterministic base.
+
+    We extract deaths/displaced/affected from each case's impact text, compute a
+    scaled estimate for the Jordan exposure, and gently adjust the peak step.
+    Only used when at least one case has extractable numbers.
+    """
+    exposed = base.get("exposed_population", 1)
+    death_hints, disp_hints = [], []
+    for c in case_studies:
+        imp = c.get("impact_numbers") or {}
+        # Each case covers its own country's population — scale to our exposed population
+        # using a conservative fraction (don't blindly scale M+ case figures 1:1)
+        d = imp.get("deaths")
+        di = imp.get("displaced")
+        if d and 10 < d < 500_000:
+            death_hints.append(d)
+        if di and 100 < di < 5_000_000:
+            disp_hints.append(di)
+
+    if not death_hints and not disp_hints:
+        return base  # nothing to blend
+
+    import statistics
+    steps = list(base.get("steps", []))
+    if not steps:
+        return base
+
+    # Find peak step and adjust its figures toward the case-study mean
+    peak_idx = max(range(len(steps)), key=lambda i: steps[i].get("casualties", 0))
+    step = dict(steps[peak_idx])
+    if death_hints:
+        case_mean = statistics.median(death_hints)
+        # Blend 60% deterministic + 40% case evidence (case values are raw, not scaled)
+        orig = step.get("casualties", 0)
+        # Scale case mean by ratio of our exposed pop to a typical country (5M baseline)
+        scaled = case_mean * (exposed / 5_000_000)
+        blended = int(0.60 * orig + 0.40 * scaled)
+        if blended > 0:
+            step["casualties"] = blended
+    if disp_hints:
+        case_mean = statistics.median(disp_hints)
+        orig = step.get("displaced", 0)
+        scaled = case_mean * (exposed / 5_000_000)
+        blended = int(0.60 * orig + 0.40 * scaled)
+        if blended > 0:
+            step["displaced"] = blended
+
+    steps[peak_idx] = step
+    result = dict(base)
+    result["steps"] = steps
+    result["totals"] = {
+        "affected":   max(s["affected"]   for s in steps),
+        "casualties": max(s["casualties"] for s in steps),
+        "injured":    max(s["injured"]    for s in steps),
+        "displaced":  max(s["displaced"]  for s in steps),
+    }
+    result["method_note_ar"] = (
+        base.get("method_note_ar", "") +
+        f" | أرقام الذروة مُعدَّلة بمزج {len(case_studies)} حالة تاريخية موثّقة."
+    )
+    return result

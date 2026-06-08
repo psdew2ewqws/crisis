@@ -14,16 +14,18 @@ import {
 import {
   streamAbm, getScenarioOptions,
   type AbmEvent, type AbmAgentPopulations, type AbmCalibration, type AbmResearchInsights,
-  type AbmReportDoc, type AbmTimelineEvent, type AbmImpactTimeline,
+  type AbmReportDoc, type AbmTimelineEvent, type AbmImpactTimeline, type AbmCaseStudy,
   type ScenarioOption, type ScenarioEvent, type ScenarioEvidence,
 } from '../../lib/voc'
 import ScenarioCharts from './ScenarioCharts'
 import EvidencePanel from './EvidencePanel'
 import ImpactTimeline from './ImpactTimeline'
+import CaseStudiesPanel from './CaseStudiesPanel'
 
 const STAGES: { key: AbmEvent['stage']; label: string }[] = [
   { key: 'seed_society',     label: 'بناء المجتمع' },
   { key: 'research_intake',  label: 'استرجاع الأدلة' },
+  { key: 'case_studies',     label: 'الحالات التاريخية' },
   { key: 'calibrate',        label: 'المعايرة' },
   { key: 'simulate_problem', label: 'محاكاة الأزمة' },
   { key: 'impact_crisis',    label: 'أثر الأزمة' },
@@ -61,6 +63,7 @@ export default function AgentBasedSimulation() {
   const [timeline, setTimeline] = useState<AbmTimelineEvent[]>([])
   const [research, setResearch] = useState<AbmResearchInsights | null>(null)
   const [papers, setPapers] = useState<ScenarioEvidence[]>([])
+  const [caseStudies, setCaseStudies] = useState<AbmCaseStudy[]>([])
   const [crisisReport, setCrisisReport] = useState<AbmReportDoc | null>(null)
   const [solutionReport, setSolutionReport] = useState<AbmReportDoc | null>(null)
   const [openReport, setOpenReport] = useState<'crisis' | 'solution' | null>(null)
@@ -72,7 +75,7 @@ export default function AgentBasedSimulation() {
   const reset = useCallback(() => {
     abortRef.current?.abort()
     setDone(new Set()); setPops(null); setEngineNotes(null); setCalib(null)
-    setSim(null); setTimeline([]); setResearch(null); setPapers([])
+    setSim(null); setTimeline([]); setResearch(null); setPapers([]); setCaseStudies([])
     setCrisisReport(null); setSolutionReport(null); setOpenReport(null)
     setCrisisImpact(null); setSolutionImpact(null)
     setSynthesis(null); setError(null)
@@ -101,6 +104,9 @@ export default function AgentBasedSimulation() {
           setResearch(e.insights ?? null)
           setPapers((e.papers ?? []) as ScenarioEvidence[])
         }
+        break
+      case 'case_studies':
+        if (e.status === 'done') setCaseStudies((e.cases ?? []) as AbmCaseStudy[])
         break
       case 'impact_crisis':
         if (e.status === 'done') setCrisisImpact(e.timeline ?? null)
@@ -219,6 +225,9 @@ export default function AgentBasedSimulation() {
           })}
         </div>
       )}
+
+      {/* historical case studies from ai_case_studies DB */}
+      {caseStudies.length > 0 && <CaseStudiesPanel cases={caseStudies} />}
 
       {/* agent society */}
       {pops && (

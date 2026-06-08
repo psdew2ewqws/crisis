@@ -35,6 +35,11 @@ except Exception:  # pragma: no cover
     abm_impact = None  # type: ignore
 
 try:
+    from . import abm_cases
+except Exception:  # pragma: no cover
+    abm_cases = None  # type: ignore
+
+try:
     from . import research_agent as _research
 except Exception:  # pragma: no cover
     _research = None  # type: ignore
@@ -298,7 +303,8 @@ def _make_solution_report(text: str, sim: Dict[str, Any],
 
 
 def _synthesize(text: str, sim: Dict[str, Any], calib: Dict[str, Any],
-                research: Dict[str, Any]) -> str:
+                research: Dict[str, Any],
+                cases: Optional[List[Dict[str, Any]]] = None) -> str:
     rb, ra = sim.get("risk_before"), sim.get("risk_after")
     red = sim.get("risk_reduction")
     tl = sim.get("intervention_timeline") or []
@@ -310,11 +316,19 @@ def _synthesize(text: str, sim: Dict[str, Any], calib: Dict[str, Any],
     ivs = research.get("interventions", [])
     iv_note = f" التدخّلات المُستحسَنة من الأدبيات: {', '.join(ivs)}." if ivs else ""
 
+    # Add historical case solutions to the synthesis context
+    case_note = ""
+    if cases:
+        top = [c.get("solution", "")[:120] for c in cases[:2] if c.get("solution")]
+        if top:
+            titles = " | ".join(c.get("title", "")[:50] for c in cases[:2])
+            case_note = f" الحالات التاريخية المشابهة ({titles}) تقترح: {' — '.join(top)}."
+
     base = (
         f"يُظهر النموذج القائم على الوكلاء أنّ ترك الأزمة دون تدخّل يرفع مؤشّر الخطر إلى "
         f"{rb}٪. عند تدخّل الجهة المشغّلة {when} (مع تدرّج في الأثر), ينخفض الخطر إلى "
         f"{ra}٪ — أي تحسّن بمقدار {red} نقطة. المعايرة مستخلصة من السجلّ التاريخي "
-        f"والأدبيات العلمية (ثقة {conf}).{iv_note} "
+        f"والأدبيات العلمية (ثقة {conf}).{iv_note}{case_note} "
         f"الأرقام استكشافية لدعم القرار، وليست تنبؤًا مُعايرًا بالأيام."
     )
     if _llm is not None:
@@ -396,8 +410,24 @@ def run_abm_flow(body: ABMScenarioIn) -> Iterator[bytes]:
               insights=research_insights,
               query=research_query)
 
-    # ── calibrate — merge voc360 data + research insights ──
-    yield _ev("calibrate", status="running", detail="معايرة أثر التدخّل (بيانات + أدبيات)")
+    # ── case studies from ai_case_studies DB table ──
+    cases: List[Dict[str, Any]] = []
+    case_calib: Dict[str, Any] = {"available": False}
+    if abm_cases is not None:
+        yield _ev("case_studies", status="running",
+                  detail="البحث في قاعدة الحالات التاريخية")
+        try:
+            cases = abm_cases.search_cases(domain or "general", location=body.location, limit=5)
+            case_calib = abm_cases.calibrate_from_cases(cases)
+        except Exception:
+            cases = []
+        yield _ev("case_studies", status="done",
+                  detail=f"عُثر على {len(cases)} حالة تاريخية مطابقة",
+                  cases=cases,
+                  calibration=case_calib)
+
+    # ── calibrate — merge voc360 data + research insights + case calibration ──
+    yield _ev("calibrate", status="running", detail="معايرة أثر التدخّل (بيانات + أدبيات + حالات)")
     try:
         data_calib = abm_calibrate.calibrate(graph)
     except Exception:
@@ -455,10 +485,13 @@ def run_abm_flow(body: ABMScenarioIn) -> Iterator[bytes]:
         # Crisis (no intervention)
         yield _ev("impact_crisis", status="running",
                   detail="محاكاة الأثر الفعلي للأزمة خطوة بخطوة")
+        # Merge intervention labels: from research papers + case study solutions
+        case_solutions = [c.get("solution", "")[:200] for c in cases if c.get("solution")]
         try:
             crisis_impact = abm_impact.simulate_impact(
                 text, domain=domain, location=body.location, intensity=intensity,
-                effect_size=eff, intervene=False, lags=lags, papers=all_papers)
+                effect_size=eff, intervene=False, lags=lags, papers=all_papers,
+                case_studies=cases)
         except Exception:
             crisis_impact = {}
         yield _ev("impact_crisis", status="done",
@@ -470,7 +503,7 @@ def run_abm_flow(body: ABMScenarioIn) -> Iterator[bytes]:
             solution_impact = abm_impact.simulate_impact(
                 text, domain=domain, location=body.location, intensity=intensity,
                 effect_size=eff, intervene=True, lags=lags, papers=all_papers,
-                interventions=ivs)
+                interventions=ivs, case_studies=cases)
         except Exception:
             solution_impact = {}
         yield _ev("impact_solution", status="done",
@@ -491,7 +524,7 @@ def run_abm_flow(body: ABMScenarioIn) -> Iterator[bytes]:
 
     # ── synthesize (cites research interventions) ──
     yield _ev("synthesize", status="running", detail="صياغة الخلاصة")
-    synthesis = _synthesize(text, sim, calib, research_insights)
+    synthesis = _synthesize(text, sim, calib, research_insights, cases)
     yield _ev("synthesize", status="done", detail="اكتملت الخلاصة",
               synthesis=synthesis,
               papers=all_papers,
