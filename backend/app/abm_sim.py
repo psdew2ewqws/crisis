@@ -242,9 +242,15 @@ class CrisisABM:
                     nid, pop=float(a.get("volume", 0) or 0),
                     sentiment0=s0, tolerance=tol, media_susceptibility=ms))
             elif kind == "service":
+                # Shock degrades services proportionally to crisis severity.
+                # At shock=0, services start at their voc360 baseline.
+                # At shock=0.45, a service that was at 75% quality starts at 75%*(1-0.45)=41%.
+                # This ensures the grievance loop can sustain and escalate the crisis.
+                base_quality = 1.0 - float(a.get("sentiment", 0.0))
+                degraded_quality = max(0.05, base_quality * (1.0 - self.shock))
                 svc = ServiceAgent(
                     nid, capacity=float(a.get("volume", 0) or 0),
-                    quality0=1.0 - float(a.get("sentiment", 0.0)),
+                    quality0=degraded_quality,
                     severity=float(a.get("severity", 0.0)))
                 self.services.append(svc)
                 self.service_by_nid[nid] = svc
@@ -257,7 +263,7 @@ class CrisisABM:
                 self._svc_of_gov[gid] = [svc.nid]
                 self._gov_of_svc[svc.nid] = [gid]
                 tol = min(0.55, max(0.15, self.rng.gauss(0.35, 0.10)))
-                s0 = max(1.0 - svc.quality, self.shock)
+                s0 = max(svc.shock if hasattr(svc, 'shock') else (1.0 - svc.quality), self.shock)
                 self.citizens.append(CitizenCohort(
                     gid, pop=svc.capacity, sentiment0=s0,
                     tolerance=tol, media_susceptibility=self.rng.uniform(0.2, 0.8)))
@@ -409,8 +415,10 @@ def run_two_phase(graph, *, steps: int = DEFAULT_STEPS, seed: int = DEFAULT_SEED
     calib = calib or {}
     eff = effect_size if effect_size is not None else float(
         calib.get("effect_size", DEFAULT_INTERVENTION_STRENGTH))
-    spread = float(calib.get("spread_rate", DEFAULT_SPREAD))
-    decay = float(calib.get("decay", DEFAULT_DECAY))
+    # Bound calibrated params so extreme values don't prevent crisis escalation.
+    # Decay < 0.96 combined with high spread_rate causes instant self-resolution.
+    spread = float(min(0.30, calib.get("spread_rate", DEFAULT_SPREAD)))
+    decay = float(max(0.975, calib.get("decay", DEFAULT_DECAY)))
     lags = lags or {
         "detection_lag": DEFAULT_DETECTION_LAG,
         "decision_lag": DEFAULT_DECISION_LAG,
