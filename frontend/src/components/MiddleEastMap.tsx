@@ -4,9 +4,9 @@ import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet'
 import type { Map as LeafletMap, CircleMarker as LeafletCircleMarker } from 'leaflet'
 import { Radio, ExternalLink, Loader2 } from 'lucide-react'
 import {
-  getRssSignals, relTime,
+  getRssSignals, getCaseStudiesMap, relTime,
   SEVERITY_COLOR, SEVERITY_RADIUS, CATEGORIES, SEVERITIES,
-  type RssSignal, type RssCategory, type RssSeverity,
+  type RssSignal, type RssCategory, type RssSeverity, type CaseStudySignal,
 } from '../lib/rss'
 
 // ── Map constants ────────────────────────────────────────────────────────────
@@ -25,6 +25,66 @@ const CAT_COLOR: Record<RssCategory, string> = {
 const isAr = (s: string | null | undefined) => !!s && /[؀-ۿ]/.test(s)
 const clip = (s: string | null | undefined, n = 200) =>
   !s ? '' : s.length > n ? s.slice(0, n).trimEnd() + '…' : s
+
+// ── Arabic governorate names for simulation prefill ─────────────────────────
+const GOV_AR: Record<string, string> = {
+  amman:'عمان', zarqa:'الزرقاء', irbid:'إربد', balqa:'البلقاء',
+  mafraq:'المفرق', madaba:'مادبا', karak:'الكرك', tafilah:'الطفيلة',
+  maan:'معان', aqaba:'العقبة', ajloun:'عجلون', jerash:'جرش',
+}
+
+function simulateSignal(sig: RssSignal | CaseStudySignal, type: 'rss' | 'case') {
+  const text = type === 'case'
+    ? `${(sig as CaseStudySignal).disaster_type} في الأردن: ${(sig as CaseStudySignal).title} — ${clip((sig as CaseStudySignal).crisis, 200)}`
+    : `أزمة في الأردن: ${sig.title}${(sig as RssSignal).summary ? ' — ' + clip((sig as RssSignal).summary, 200) : ''}`
+  const location = type === 'case'
+    ? (GOV_AR[(sig as CaseStudySignal).gov] ?? (sig as CaseStudySignal).gov)
+    : undefined
+  sessionStorage.setItem('aegis_scenario_prefill', JSON.stringify({ text, location, run: true }))
+  window.dispatchEvent(new CustomEvent('aegis:navigate', { detail: 'Simulation' }))
+}
+
+// ── Case study marker (purple, ai_case_studies data) ────────────────────────
+const CaseStudyMarker = memo(function CaseStudyMarker({ c }: { c: CaseStudySignal }) {
+  return (
+    <CircleMarker
+      center={[c.lat, c.lng]}
+      radius={10}
+      pathOptions={{ color: '#a855f7', fillColor: '#a855f7', fillOpacity: 0.7, weight: 2 }}
+    >
+      <Popup>
+        <div className="aegis-popup">
+          <div className="aegis-popup-title" dir="rtl">{c.title}</div>
+          <div className="aegis-popup-meta">
+            <span>{c.country}</span>
+            {c.gov_match === 'text' && <span>· {GOV_AR[c.gov] ?? c.gov}</span>}
+          </div>
+          <div className="aegis-popup-badges">
+            <span className="aegis-badge" style={{ background: '#a855f722', color: '#a855f7' }}>
+              {c.disaster_type}
+            </span>
+            <span className="aegis-badge aegis-badge-muted">{c.source_site}</span>
+          </div>
+          {c.crisis && (
+            <p className="aegis-popup-summary" dir="auto">{clip(c.crisis, 200)}</p>
+          )}
+          {c.solution && (
+            <p style={{ color: '#34d399', fontSize: 11, marginTop: 4 }} dir="auto">
+              ✓ {clip(c.solution, 150)}
+            </p>
+          )}
+          <button
+            className="aegis-sim-btn"
+            dir="rtl"
+            onClick={() => simulateSignal(c, 'case')}
+          >
+            ⚡ محاكاة هذا الحدث في الأردن
+          </button>
+        </div>
+      </Popup>
+    </CircleMarker>
+  )
+})
 
 // ── Single marker (memoised so unchanged points don't re-render on poll) ─────
 interface MarkerProps {
@@ -78,6 +138,13 @@ const SignalMarker = memo(
                 {clip(sig.summary, 200)}
               </p>
             )}
+            <button
+              className="aegis-sim-btn"
+              dir="rtl"
+              onClick={(e) => { e.stopPropagation(); simulateSignal(sig, 'rss') }}
+            >
+              ⚡ محاكاة هذا الحدث
+            </button>
           </div>
         </Popup>
       </CircleMarker>
@@ -115,6 +182,7 @@ export default function MiddleEastMap() {
   const [catOn, setCatOn] = useState<Set<RssCategory>>(() => new Set(CATEGORIES))
   const [sevOn, setSevOn] = useState<Set<RssSeverity>>(() => new Set(SEVERITIES))
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [caseStudies, setCaseStudies] = useState<CaseStudySignal[]>([])
 
   const mapRef = useRef<LeafletMap | null>(null)
   const prevIdsRef = useRef<string>('')
@@ -144,6 +212,11 @@ export default function MiddleEastMap() {
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
+  }, [])
+
+  // Fetch ai_case_studies cases once on mount.
+  useEffect(() => {
+    getCaseStudiesMap().then(d => setCaseStudies(d.cases || []))
   }, [])
 
   const filtered = useMemo(
@@ -189,6 +262,8 @@ export default function MiddleEastMap() {
         .aegis-badge { border-radius:4px; padding:1px 6px; font-size:9.5px; font-weight:600; text-transform:capitalize; }
         .aegis-badge-muted { background:#1A1B20; color:#8B8D96; }
         .aegis-popup-summary { margin-top:6px; font-size:11px; line-height:1.5; color:#8B8D96; }
+        .aegis-sim-btn { display:block; width:100%; margin-top:8px; padding:5px 10px; background:#3b82f620; border:1px solid #3b82f660; border-radius:6px; color:#60a5fa; font-size:11.5px; cursor:pointer; text-align:center; font-weight:600; }
+        .aegis-sim-btn:hover { background:#3b82f640; }
       `}</style>
 
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
@@ -224,6 +299,9 @@ export default function MiddleEastMap() {
             <TileLayer url={DARK_URL} attribution={DARK_ATTR} subdomains="abcd" />
             {located.map(sig => (
               <SignalMarker key={sig.id} sig={sig} selected={selectedId === sig.id} onSelect={onSelect} />
+            ))}
+            {caseStudies.map(c => (
+              <CaseStudyMarker key={`cs-${c.id}`} c={c} />
             ))}
           </MapContainer>
 
@@ -298,8 +376,18 @@ export default function MiddleEastMap() {
         </div>
       </div>
 
-      <div className="border-t border-border px-4 py-2 text-right font-mono text-[10px] text-faint">
-        live RSS · {lastFetch ? `last fetch ${relTime(lastFetch)}` : 'awaiting first fetch'} · CARTO / OSM
+      <div className="border-t border-border px-4 py-2 flex items-center justify-between font-mono text-[10px] text-faint">
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full" style={{ background: '#a855f7' }} />
+            حالات تاريخية موثّقة ({caseStudies.length})
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-blue" />
+            أحداث مباشرة ({located.length})
+          </span>
+        </div>
+        <span>live RSS · {lastFetch ? `last fetch ${relTime(lastFetch)}` : 'awaiting first fetch'} · CARTO / OSM</span>
       </div>
     </div>
   )

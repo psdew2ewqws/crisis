@@ -71,6 +71,30 @@ export default function AgentBasedSimulation() {
   const [solutionImpact, setSolutionImpact] = useState<AbmImpactTimeline | null>(null)
   const [synthesis, setSynthesis] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const autoRunRef = useRef(false)
+
+  // Read sessionStorage prefill written by map "Simulate" buttons (RSS + case studies).
+  // Must run after locations dropdown loads so the location value is accepted.
+  useEffect(() => {
+    const raw = sessionStorage.getItem('aegis_scenario_prefill')
+    if (!raw) return
+    try {
+      const p = JSON.parse(raw) as { text?: string; location?: string; run?: boolean }
+      if (p.text) setText(p.text)
+      if (p.location) setLocation(p.location)
+      if (p.run) autoRunRef.current = true
+    } catch { /* ignore malformed */ }
+    sessionStorage.removeItem('aegis_scenario_prefill')
+  }, [])
+
+  // Auto-run once locations are loaded and text is ready.
+  useEffect(() => {
+    if (autoRunRef.current && locations.length > 0 && text.trim().length >= 6) {
+      autoRunRef.current = false
+      run()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locations, text])
 
   const reset = useCallback(() => {
     abortRef.current?.abort()

@@ -117,7 +117,34 @@ export const getRssSources = (): Promise<RssSourcesResponse> =>
 export const getRssStats = (): Promise<RssStatsResponse> =>
   jf<RssStatsResponse>('/api/rss/stats', EMPTY_STATS)
 
-// Relative-time formatter shared by the map + feed sidebar.
+// ── ai_case_studies map markers ───────────────────────────────────────────────
+export interface CaseStudySignal {
+  id: number
+  title: string
+  country: string
+  disaster_type: string
+  gov: string
+  lat: number
+  lng: number
+  gov_match: 'text' | 'default_amman'
+  crisis: string
+  impact: string
+  solution: string
+  source_site: string
+}
+
+export interface CaseStudiesMapResponse {
+  cases: CaseStudySignal[]
+  total: number
+  error?: string
+}
+
+const EMPTY_CASE_MAP: CaseStudiesMapResponse = { cases: [], total: 0 }
+
+export const getCaseStudiesMap = (): Promise<CaseStudiesMapResponse> =>
+  jf<CaseStudiesMapResponse>('/api/case-studies/map', EMPTY_CASE_MAP)
+
+// ── Relative-time formatter shared by the map + feed sidebar ─────────────────
 export function relTime(iso: string | null): string {
   if (!iso) return ''
   const ms = new Date(iso).getTime()

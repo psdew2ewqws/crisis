@@ -458,6 +458,90 @@ def news_analysis(gov: str = Query(...)) -> Dict[str, Any]:
 
 
 # ===========================================================================
+# CASE STUDIES MAP  (GET /api/case-studies/map)
+# Returns Jordan ai_case_studies cases with WGS84 centroids for map rendering.
+# Each case is geolocated to a Jordan governorate by text-mining the crisis/
+# impact/solution fields for governorate keywords; defaults to Amman.
+# ===========================================================================
+_GOV_CENTROIDS: Dict[str, tuple] = {
+    "amman":   (31.963, 35.930), "zarqa":  (32.073, 36.088),
+    "irbid":   (32.555, 35.852), "balqa":  (32.033, 35.728),
+    "mafraq":  (32.342, 36.200), "madaba": (31.717, 35.793),
+    "karak":   (31.185, 35.704), "tafilah":(30.842, 35.604),
+    "maan":    (30.192, 35.735), "aqaba":  (29.531, 35.006),
+    "ajloun":  (32.333, 35.752), "jerash": (32.282, 35.900),
+}
+
+# Extended keyword → gov id for text-mining (covers English + Arabic mentions)
+_CASE_GOV_KEYWORDS: Dict[str, List[str]] = {
+    "amman":   ["amman", "عمان", "عمّان", "ماركا", "مرج الحمام"],
+    "zarqa":   ["zarqa", "الزرقاء", "الزرقا", "رصيفة"],
+    "irbid":   ["irbid", "إربد", "رمثا", "المزار الشمالي"],
+    "balqa":   ["balqa", "البلقاء", "السلط", "salt"],
+    "mafraq":  ["mafraq", "المفرق", "الزعتري", "zaatari"],
+    "madaba":  ["madaba", "مادبا", "ذيبان"],
+    "karak":   ["karak", "الكرك", "kerak"],
+    "tafilah": ["tafilah", "الطفيلة", "tafila"],
+    "maan":    ["maan", "معان", "ma'an", "البتراء", "petra"],
+    "aqaba":   ["aqaba", "العقبة", "القويرة"],
+    "ajloun":  ["ajloun", "عجلون", "ajlun"],
+    "jerash":  ["jerash", "جرش", "jarash"],
+}
+
+
+def _geolocate_case(crisis: str, impact: str, solution: str) -> tuple:
+    """Return (gov_id, match_type) by scanning case text for gov keywords."""
+    blob = " ".join([crisis or "", impact or "", solution or ""]).lower()
+    for gov_id, keywords in _CASE_GOV_KEYWORDS.items():
+        for kw in keywords:
+            if kw.lower() in blob:
+                return gov_id, "text"
+    return "amman", "default_amman"
+
+
+@router.get("/api/case-studies/map")
+def case_studies_map() -> Dict[str, Any]:
+    """Jordan ai_case_studies with WGS84 centroids for map marker rendering."""
+    if db is None:
+        return {"cases": [], "total": 0, "error": "data layer unavailable"}
+    try:
+        rows = db.fetchall(
+            "SELECT id, title, country, disaster_type, crisis, impact, solution, source_site "
+            "FROM ai_case_studies "
+            "WHERE lower(coalesce(country,'')) LIKE '%%jordan%%' "
+            "ORDER BY id"
+        )
+        cases = []
+        for r in (rows or []):
+            gov_id, match_type = _geolocate_case(
+                r.get("crisis") or "", r.get("impact") or "", r.get("solution") or ""
+            )
+            lat, lng = _GOV_CENTROIDS.get(gov_id, (31.963, 35.930))
+            # Small random jitter so multiple cases in same gov don't stack
+            import hashlib as _hs
+            h = int(_hs.md5(str(r["id"]).encode()).hexdigest(), 16)
+            lat += ((h & 0xFF) - 128) * 0.002   # ±0.25° scatter
+            lng += (((h >> 8) & 0xFF) - 128) * 0.002
+            cases.append({
+                "id":           r["id"],
+                "title":        r["title"],
+                "country":      r["country"],
+                "disaster_type": r["disaster_type"],
+                "gov":          gov_id,
+                "lat":          round(lat, 4),
+                "lng":          round(lng, 4),
+                "gov_match":    match_type,
+                "crisis":       (r["crisis"] or "")[:350],
+                "impact":       (r["impact"] or "")[:350],
+                "solution":     (r["solution"] or "")[:350],
+                "source_site":  r["source_site"],
+            })
+        return {"cases": cases, "total": len(cases)}
+    except Exception as e:
+        return {"cases": [], "total": 0, "error": str(e)}
+
+
+# ===========================================================================
 # T2 — KPIS  (GET /api/kpis)
 # Wraps api_kpis.kpis() into the frontend's card-array contract.
 # ===========================================================================
