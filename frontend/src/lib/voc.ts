@@ -416,6 +416,7 @@ export interface ScenarioEvidence {
   year?: number
   doi?: string | null
   url?: string
+  scihub_url?: string | null   // resolved by Sci-Hub for closed/bronze papers
   oa_status?: string
   license?: string | null
   cited_by?: number

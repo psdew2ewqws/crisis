@@ -1,18 +1,18 @@
-// EvidencePanel — verified references from the legal research agent (the sci-hub
-// replacement). Each item is a REAL paper/record whose DOI/URL passed verify_source;
-// nothing here is fabricated, and the panel abstains honestly when no source resolves.
+// EvidencePanel — scholarly references via OpenAlex + Sci-Hub full-text links.
+// OpenAlex finds and verifies each paper; for closed/bronze papers where no
+// open-access PDF exists, a Sci-Hub URL is resolved and shown as a direct PDF link.
 
 import { motion } from 'motion/react'
-import { BookOpen, ExternalLink, ShieldCheck } from 'lucide-react'
+import { BookOpen, ExternalLink, ShieldCheck, FileDown } from 'lucide-react'
 import type { ScenarioEvidence } from '../../lib/voc'
 
 const OA_TONE: Record<string, string> = {
-  gold: 'border-good/30 bg-good/10 text-good',
+  gold:    'border-good/30 bg-good/10 text-good',
   diamond: 'border-good/30 bg-good/10 text-good',
-  green: 'border-good/30 bg-good/10 text-good',
-  hybrid: 'border-blue/30 bg-blue/10 text-blue',
-  bronze: 'border-warn/30 bg-warn/10 text-warn',
-  closed: 'border-border bg-soft text-muted',
+  green:   'border-good/30 bg-good/10 text-good',
+  hybrid:  'border-blue/30 bg-blue/10 text-blue',
+  bronze:  'border-warn/30 bg-warn/10 text-warn',
+  closed:  'border-border bg-soft text-muted',
 }
 
 export default function EvidencePanel({
@@ -42,7 +42,7 @@ export default function EvidencePanel({
 
       {abstained || items.length === 0 ? (
         <div className="rounded-lg border border-border bg-bg px-3 py-4 text-center text-[13px] text-faint" dir="auto">
-          لا توجد أدلة كافية موثّقة من مصادر مفتوحة لهذا الموضوع — لم نختلق مرجعًا.
+          لا توجد أدلة كافية موثّقة لهذا الموضوع — لم نختلق مرجعًا.
         </div>
       ) : (
         <ul className="space-y-2.5">
@@ -68,6 +68,7 @@ export default function EvidencePanel({
                   </span>
                 )}
               </div>
+
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11.5px] text-faint">
                 {e.year && <span className="tnum">{e.year}</span>}
                 {e.oa_status && (
@@ -78,9 +79,30 @@ export default function EvidencePanel({
                 {typeof e.cited_by === 'number' && e.cited_by > 0 && (
                   <span className="tnum">{e.cited_by} اقتباس</span>
                 )}
-                {e.doi && <span className="font-mono">doi:{e.doi}</span>}
+                {e.doi && <span className="font-mono text-[10.5px]">doi:{e.doi}</span>}
                 {e.source && <span className="ms-auto uppercase">{e.source}</span>}
               </div>
+
+              {/* Sci-Hub full-text link for closed/bronze papers */}
+              {e.scihub_url && (
+                <div className="mt-2 flex items-center gap-1.5">
+                  <a
+                    href={e.scihub_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 rounded border border-blue/30 bg-blue/10 px-2 py-0.5 text-[11px] font-medium text-blue transition-colors hover:bg-blue/20"
+                  >
+                    <FileDown className="h-3 w-3" />
+                    Full text via Sci-Hub
+                  </a>
+                </div>
+              )}
+
+              {e.snippet && (
+                <p className="mt-1.5 line-clamp-2 text-[12px] leading-relaxed text-muted" dir="auto">
+                  {e.snippet}
+                </p>
+              )}
             </li>
           ))}
         </ul>

@@ -1,4 +1,4 @@
-"""Legal research agent — the lawful replacement for any paywall-circumvention source.
+"""Research agent — OpenAlex discovery + Sci-Hub full-text resolution.
 
 Plan-Execute pipeline over free scholarly + open-data APIs:
     plan -> search (OpenAlex, Jordan-scoped + global) -> dedupe -> RRF rank
@@ -24,6 +24,11 @@ except Exception:  # pragma: no cover
     openalex = fusion = None  # type: ignore
 from . import provenance
 
+try:
+    from . import scihub as _scihub
+except Exception:  # pragma: no cover
+    _scihub = None  # type: ignore
+
 router = APIRouter()
 NDJSON = "application/x-ndjson"
 
@@ -48,9 +53,10 @@ def _evidence_row(it: Dict[str, Any]) -> Dict[str, Any]:
         "oa_status": it.get("oa_status"),
         "license": it.get("license"),
         "cited_by": it.get("cited_by"),
-        "snippet": (it.get("abstract") or "")[:500],   # fair-use snippet only
+        "snippet": (it.get("abstract") or "")[:500],
         "verified": it.get("verified"),
         "verify_how": it.get("verify_how"),
+        "scihub_url": it.get("scihub_url"),     # resolved by scihub.enrich_evidence()
     }
 
 
@@ -80,6 +86,11 @@ def gather(query: str, *, jordan: bool = True, limit: int = 8) -> Dict[str, Any]
         it["verify_how"] = v.get("how")
         out.append(_evidence_row(it))
     verified = [e for e in out if e.get("verified")]
+
+    # Sci-Hub enrichment: resolve full-text PDF URLs for closed/bronze papers
+    if _scihub is not None and verified:
+        verified = _scihub.enrich_evidence(verified)
+
     return {"evidence": verified, "considered": len(out), "abstained": len(verified) == 0}
 
 
