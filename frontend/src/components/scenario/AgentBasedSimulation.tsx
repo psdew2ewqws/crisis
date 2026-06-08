@@ -9,23 +9,24 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   Play, RotateCcw, Loader2, MapPin, Wrench, Users, Building2, Megaphone,
-  ShieldAlert, FlaskConical, Clock, Activity,
+  ShieldAlert, FlaskConical, Clock, Activity, FileText, ChevronDown,
 } from 'lucide-react'
 import {
   streamAbm, getScenarioOptions,
   type AbmEvent, type AbmAgentPopulations, type AbmCalibration, type AbmResearchInsights,
-  type AbmTimelineEvent, type ScenarioOption, type ScenarioEvent, type ScenarioEvidence,
+  type AbmReportDoc, type AbmTimelineEvent, type ScenarioOption, type ScenarioEvent, type ScenarioEvidence,
 } from '../../lib/voc'
 import ScenarioCharts from './ScenarioCharts'
 import EvidencePanel from './EvidencePanel'
 
 const STAGES: { key: AbmEvent['stage']; label: string }[] = [
-  { key: 'seed_society',    label: 'بناء المجتمع' },
-  { key: 'research_intake', label: 'استرجاع الأدلة' },
-  { key: 'calibrate',       label: 'المعايرة' },
+  { key: 'seed_society',     label: 'بناء المجتمع' },
+  { key: 'research_intake',  label: 'استرجاع الأدلة' },
+  { key: 'calibrate',        label: 'المعايرة' },
   { key: 'simulate_problem', label: 'محاكاة الأزمة' },
   { key: 'simulate_solution', label: 'محاكاة الحلّ' },
-  { key: 'synthesize',      label: 'الخلاصة' },
+  { key: 'reports',          label: 'التقارير' },
+  { key: 'synthesize',       label: 'الخلاصة' },
 ]
 
 const CONF_AR: Record<string, string> = { high: 'مرتفعة', medium: 'متوسطة', low: 'منخفضة' }
@@ -57,6 +58,9 @@ export default function AgentBasedSimulation() {
   const [timeline, setTimeline] = useState<AbmTimelineEvent[]>([])
   const [research, setResearch] = useState<AbmResearchInsights | null>(null)
   const [papers, setPapers] = useState<ScenarioEvidence[]>([])
+  const [crisisReport, setCrisisReport] = useState<AbmReportDoc | null>(null)
+  const [solutionReport, setSolutionReport] = useState<AbmReportDoc | null>(null)
+  const [openReport, setOpenReport] = useState<'crisis' | 'solution' | null>(null)
   const [synthesis, setSynthesis] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -64,6 +68,7 @@ export default function AgentBasedSimulation() {
     abortRef.current?.abort()
     setDone(new Set()); setPops(null); setEngineNotes(null); setCalib(null)
     setSim(null); setTimeline([]); setResearch(null); setPapers([])
+    setCrisisReport(null); setSolutionReport(null); setOpenReport(null)
     setSynthesis(null); setError(null)
   }, [])
 
@@ -89,6 +94,12 @@ export default function AgentBasedSimulation() {
         if (e.status === 'done') {
           setResearch(e.insights ?? null)
           setPapers((e.papers ?? []) as ScenarioEvidence[])
+        }
+        break
+      case 'reports':
+        if (e.status === 'done') {
+          setCrisisReport(e.crisis_report ?? null)
+          setSolutionReport(e.solution_report ?? null)
         }
         break
       case 'synthesize':
@@ -285,6 +296,59 @@ export default function AgentBasedSimulation() {
           </div>
           <ScenarioCharts sim={sim as unknown as ScenarioEvent} />
         </motion.div>
+      )}
+
+      {/* Two-report panel: crisis + solution */}
+      {(crisisReport || solutionReport) && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {([
+            { key: 'crisis' as const, doc: crisisReport, accent: 'danger', label: 'تقرير الأزمة', sub: 'Crisis Report' },
+            { key: 'solution' as const, doc: solutionReport, accent: 'good', label: 'تقرير الحلول', sub: 'Solution Report' },
+          ] as const).map(({ key, doc, label, sub }) => doc && (
+            <motion.div key={key} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+              className="rounded-xl border border-border bg-card">
+              {/* report header — click to expand */}
+              <button type="button" onClick={() => setOpenReport(o => o === key ? null : key)}
+                className="flex w-full items-center justify-between px-5 py-3 transition-colors hover:bg-soft/40">
+                <div className="flex items-center gap-2">
+                  <FileText className={`h-4 w-4 ${key === 'crisis' ? 'text-danger' : 'text-good'}`} />
+                  <span className="text-[14px] font-semibold text-txt" dir="auto">{label}</span>
+                  <span className="text-[11px] text-faint">{sub}</span>
+                </div>
+                <ChevronDown className={`h-4 w-4 text-muted transition-transform ${openReport === key ? 'rotate-180' : ''}`} />
+              </button>
+
+              {openReport === key && doc.ok && (
+                <div className="border-t border-border px-5 pb-5 pt-4">
+                  {/* key figures grid */}
+                  {(doc.key_figures ?? []).length > 0 && (
+                    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {(doc.key_figures ?? []).map((kf, i) => (
+                        <div key={i} className="rounded-lg border border-border/60 bg-soft/40 px-3 py-2">
+                          <div className="text-[10px] text-faint" dir="auto">{kf.label}</div>
+                          <div className="mt-0.5 text-[14px] font-semibold text-txt" dir="auto">{kf.value}</div>
+                          <div className="text-[9px] text-faint/70" dir="auto">{kf.source}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* sections */}
+                  {(doc.sections ?? []).map((sec, i) => (
+                    <div key={i} className="mb-4">
+                      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+                        <span>{sec.title_ar}</span>
+                        <span className="normal-case tracking-normal opacity-50">{sec.title_en}</span>
+                      </div>
+                      {sec.paragraphs.filter(Boolean).map((p, j) => (
+                        <p key={j} className="mb-1.5 text-[13px] leading-relaxed text-txt" dir="rtl">{p}</p>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          ))}
+        </div>
       )}
 
       {/* Research-informed parameters panel — shown BEFORE charts, explaining what papers contributed */}

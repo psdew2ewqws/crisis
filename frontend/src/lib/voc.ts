@@ -674,9 +674,17 @@ export interface AbmTimelineEvent {
 export interface AbmArchPoint {
   step: number; citizen: number; service_quality: number; media_awareness: number
 }
+export interface AbmReportDoc {
+  ok: boolean
+  type?: 'crisis' | 'solution'
+  error?: string
+  meta?: { title_ar: string; title_en: string; scenario: string }
+  key_figures?: ReportKeyFigure[]
+  sections?: ReportSection[]
+}
 export interface AbmEvent {
   stage: 'intake' | 'seed_society' | 'research_intake' | 'calibrate' | 'simulate_problem'
-    | 'simulate_solution' | 'compare' | 'synthesize' | 'error' | 'done'
+    | 'simulate_solution' | 'compare' | 'reports' | 'synthesize' | 'error' | 'done'
   status?: string
   detail?: string
   // intake
@@ -703,6 +711,9 @@ export interface AbmEvent {
   insights?: AbmResearchInsights
   query?: string
   shock_used?: number
+  // reports stage
+  crisis_report?: AbmReportDoc
+  solution_report?: AbmReportDoc
   // legacy evidence fields (kept for EvidencePanel compat)
   items?: ScenarioEvidence[]
   count?: number
