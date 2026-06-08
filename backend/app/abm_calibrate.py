@@ -1,9 +1,22 @@
-"""Ground the ABM's intervention in REAL voc360 history instead of a guessed 0.60.
+"""Ground the ABM's intervention in REAL voc360 history and peer-reviewed literature.
+
+Scientific retrieval (OpenAlex / Sci-Hub-style open-access) adds a second grounding
+layer on top of the voc360 data fit:
+
+  extract_research_insights(papers, domain)
+      ↓ mines paper abstracts for:
+        • severity language  → crisis shock calibration
+        • spread indicators  → spread rate hints
+        • named interventions with effect sizes → evidence-backed operator strategy
+      ↓ returns ResearchInsights dict that the ABM flow merges with the data calibration
+
+The honesty chain:
+  voc360 data fit  +  peer-reviewed evidence  ->  merged calibration  ->  simulation
 
 The agent-based model needs three numbers it should not invent:
-  • effect_size  — how much an intervention actually relieves a crisis,
-  • spread_rate  — how fast grievance propagates,
-  • decay        — how fast it subsides on its own.
+  - effect_size  -- how much an intervention actually relieves a crisis,
+  - spread_rate  -- how fast grievance propagates,
+  - decay        -- how fast it subsides on its own.
 
 This module fits all three from the_data and returns them with an honest
 confidence band and provenance. It is ALWAYS available (scipy/pandas/numpy/db
@@ -19,8 +32,9 @@ Honesty contract (mirrors cascade_sim / causal_validate):
 """
 from __future__ import annotations
 
+import re
 import statistics
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import mesa_sim
 from .mesa_sim import DEFAULT_INTERVENTION_STRENGTH, DEFAULT_SEED  # noqa: F401
@@ -38,6 +52,171 @@ except Exception:  # pragma: no cover
 MIN_ROWS = 200            # below this the fit is untrustworthy → prior
 _DEF_SPREAD = 0.30
 _DEF_DECAY = 0.985
+
+# ── Research-insight extraction ───────────────────────────────────────────────
+# Severity keywords → 0-1 shock magnitude (citation-weighted average).
+_SEVERITY_MAP: List[Tuple[str, float]] = [
+    ("catastrophic", 0.90), ("collapse",    0.88), ("crisis",       0.80),
+    ("acute",        0.75), ("critical",    0.75), ("severe",       0.72),
+    ("significant",  0.60), ("substantial", 0.58), ("serious",      0.60),
+    ("moderate",     0.50), ("notable",     0.45), ("limited",      0.30),
+    ("mild",         0.25), ("minor",       0.20),
+]
+
+# Domain-specific intervention vocabulary to match against paper abstracts.
+_DOMAIN_INTERVENTIONS: Dict[str, List[str]] = {
+    "water":     ["rationing", "trucking", "nrw", "reuse", "conservation",
+                  "desalination", "quota", "metering", "tariff", "dam"],
+    "health":    ["vaccination", "quarantine", "isolation", "capacity",
+                  "triage", "surge", "stockpile", "referral"],
+    "transport": ["rerouting", "maintenance", "alternative", "repair"],
+    "food":      ["aid", "subsidy", "import", "reserve", "stockpile", "voucher"],
+    "energy":    ["load shedding", "rationing", "generator", "battery", "solar"],
+    "disaster":  ["evacuation", "shelter", "relief", "rescue", "emergency"],
+    "refugees":  ["registration", "cash", "shelter", "resettlement"],
+    "economy":   ["subsidy", "freeze", "price control", "buffer", "transfer"],
+}
+
+# Regex for numeric effect sizes: "reduced by 30%", "20% improvement", etc.
+_EFFECT_RE = re.compile(
+    r"(\d{1,3})\s*%\s*(?:reduction|reduc|declin|decrease|improv|increas|efficien|effect)"
+    r"|(?:reduction|reduc|declin|decrease|improv|increas|efficien|effect)"
+    r"\s+(?:of|by)?\s*(\d{1,3})\s*%",
+    re.IGNORECASE,
+)
+
+
+def _parse_effect_pct(abstract: str) -> Optional[float]:
+    for m in _EFFECT_RE.finditer(abstract):
+        pct = int(m.group(1) or m.group(2) or 0)
+        if 1 <= pct <= 90:
+            return pct / 100.0
+    return None
+
+
+def _parse_severity(abstract: str) -> Optional[float]:
+    low = abstract.lower()
+    best: Optional[float] = None
+    for word, mag in _SEVERITY_MAP:
+        if word in low and (best is None or mag > best):
+            best = mag
+    return best
+
+
+def _parse_interventions(abstract: str, domain: str) -> List[str]:
+    low = abstract.lower()
+    return [v for v in _DOMAIN_INTERVENTIONS.get(domain.lower(), []) if v in low]
+
+
+def extract_research_insights(
+    papers: List[Dict[str, Any]],
+    domain: str = "",
+) -> Dict[str, Any]:
+    """Mine paper abstracts for crisis patterns and intervention evidence.
+
+    Returns a ResearchInsights dict:
+      shock_hint    — citation-weighted severity magnitude from papers (0-1 or None)
+      effect_hints  — numeric effect sizes found in abstracts
+      interventions — domain-specific interventions named in the literature
+      sources       — per-paper contributions (title, year, doi, what was extracted)
+      confidence    — based on number of contributing papers
+      notes_ar      — Arabic provenance note for the UI
+    """
+    if not papers:
+        return {"available": False, "shock_hint": None, "effect_hints": [],
+                "interventions": [], "sources": [], "confidence": "low",
+                "notes_ar": "لا توجد أوراق بحثية — معايرة من البيانات فقط."}
+
+    shock_vals: List[Tuple[float, int]] = []
+    effect_vals: List[float] = []
+    ivs_set: set = set()
+    sources: List[Dict[str, Any]] = []
+
+    for p in papers:
+        abstract = (p.get("snippet") or "").strip()
+        if not abstract:
+            continue
+        w = max(1, int(p.get("cited_by") or 1))
+        contrib: List[str] = []
+
+        sev = _parse_severity(abstract)
+        if sev is not None:
+            shock_vals.append((sev, w))
+            contrib.append(f"severity≈{round(sev, 2)}")
+
+        eff = _parse_effect_pct(abstract)
+        if eff is not None:
+            effect_vals.append(eff)
+            contrib.append(f"effect≈{round(eff * 100)}%")
+
+        for iv in _parse_interventions(abstract, domain):
+            ivs_set.add(iv)
+            contrib.append(f"intervention:{iv}")
+
+        if contrib:
+            sources.append({
+                "title":        (p.get("title") or "")[:80],
+                "year":         p.get("year"),
+                "doi":          p.get("doi"),
+                "url":          p.get("url"),
+                "contribution": ", ".join(contrib),
+            })
+
+    shock_hint: Optional[float] = None
+    if shock_vals:
+        tw = sum(w for _, w in shock_vals)
+        shock_hint = round(sum(s * w for s, w in shock_vals) / tw, 3)
+
+    n = len(sources)
+    confidence = "high" if n >= 4 else "medium" if n >= 2 else "low"
+
+    parts: List[str] = []
+    if shock_hint is not None:
+        parts.append(f"شدّة الأزمة المستخلصة: {round(shock_hint * 100)}%")
+    if effect_vals:
+        parts.append(f"متوسط أثر التدخّل: {round(sum(effect_vals) / len(effect_vals) * 100)}%")
+    if ivs_set:
+        parts.append(f"تدخّلات مقترحة: {', '.join(sorted(ivs_set))}")
+    notes_ar = " | ".join(parts) if parts else "لم تُوجَد معطيات كمّية قابلة للاستخراج."
+
+    return {
+        "available":      True,
+        "n_papers":       len(papers),
+        "n_contributing": n,
+        "shock_hint":     shock_hint,
+        "effect_hints":   [round(e, 3) for e in effect_vals],
+        "interventions":  sorted(ivs_set),
+        "sources":        sources,
+        "confidence":     confidence,
+        "notes_ar":       notes_ar,
+    }
+
+
+def merge_with_research(
+    data_calib: Dict[str, Any],
+    research: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Blend voc360 data calibration with paper-derived insights.
+
+    • effect_size: if ≥2 paper hints, blend 60% data + 40% literature.
+    • confidence: 'high' when data and papers agree within 15 points.
+    • source: 'data+research' when papers contributed.
+    """
+    merged = dict(data_calib)
+    hints = research.get("effect_hints", [])
+    if len(hints) >= 2:
+        paper_eff = sum(hints) / len(hints)
+        data_eff  = float(data_calib.get("effect_size", DEFAULT_INTERVENTION_STRENGTH))
+        merged["effect_size"] = round(0.60 * data_eff + 0.40 * paper_eff, 3)
+        merged["source"] = "data+research"
+        merged["notes_ar"] = (
+            data_calib.get("notes_ar", "") +
+            f" | دُمج مع {len(hints)} قياس من الأدبيات (تأثير ورقي: {round(paper_eff*100)}٪)."
+        )
+        if abs(paper_eff - data_eff) < 0.15:
+            merged["confidence"] = "high"
+    merged["research"] = research
+    return merged
 
 
 def available_dowhy() -> bool:

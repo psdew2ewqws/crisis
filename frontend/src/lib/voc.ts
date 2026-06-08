@@ -641,9 +641,23 @@ export async function streamScenario(
 export interface AbmAgentPopulations {
   citizens: number; services: number; operators: number; media: number; citizen_pop_total: number
 }
+export interface AbmResearchSource {
+  title: string; year?: number; doi?: string | null; url?: string; contribution: string
+}
+export interface AbmResearchInsights {
+  available: boolean
+  n_papers: number
+  n_contributing: number
+  shock_hint: number | null
+  effect_hints: number[]
+  interventions: string[]
+  sources: AbmResearchSource[]
+  confidence: 'high' | 'medium' | 'low'
+  notes_ar: string
+}
 export interface AbmCalibration {
   available: boolean
-  source: 'data' | 'dowhy' | 'prior'
+  source: 'data' | 'dowhy' | 'prior' | 'data+research'
   effect_size: number
   spread_rate: number
   decay: number
@@ -652,6 +666,7 @@ export interface AbmCalibration {
   confidence: 'high' | 'medium' | 'low'
   refutation: { available: boolean; robust?: boolean; spurious?: boolean; effect?: number }
   notes_ar: string
+  research?: AbmResearchInsights
 }
 export interface AbmTimelineEvent {
   tick: number; event: string; targets?: string[]; effect_size?: number; obs?: number
@@ -660,8 +675,8 @@ export interface AbmArchPoint {
   step: number; citizen: number; service_quality: number; media_awareness: number
 }
 export interface AbmEvent {
-  stage: 'intake' | 'seed_society' | 'calibrate' | 'simulate_problem'
-    | 'simulate_solution' | 'compare' | 'evidence' | 'synthesize' | 'error' | 'done'
+  stage: 'intake' | 'seed_society' | 'research_intake' | 'calibrate' | 'simulate_problem'
+    | 'simulate_solution' | 'compare' | 'synthesize' | 'error' | 'done'
   status?: string
   detail?: string
   // intake
@@ -683,11 +698,15 @@ export interface AbmEvent {
   per_archetype_series?: { problem: AbmArchPoint[]; solution: AbmArchPoint[] }
   intervention_timeline?: AbmTimelineEvent[]
   lags?: { detection_lag: number; decision_lag: number; ramp_ticks: number }
-  // evidence (scholarly references via OpenAlex open-access)
+  // research_intake — papers fetched before simulation
+  papers?: ScenarioEvidence[]
+  insights?: AbmResearchInsights
+  query?: string
+  shock_used?: number
+  // legacy evidence fields (kept for EvidencePanel compat)
   items?: ScenarioEvidence[]
   count?: number
   abstained?: boolean
-  query?: string
   // synthesize
   synthesis?: string
   // done

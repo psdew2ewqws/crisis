@@ -13,19 +13,19 @@ import {
 } from 'lucide-react'
 import {
   streamAbm, getScenarioOptions,
-  type AbmEvent, type AbmAgentPopulations, type AbmCalibration,
+  type AbmEvent, type AbmAgentPopulations, type AbmCalibration, type AbmResearchInsights,
   type AbmTimelineEvent, type ScenarioOption, type ScenarioEvent, type ScenarioEvidence,
 } from '../../lib/voc'
 import ScenarioCharts from './ScenarioCharts'
 import EvidencePanel from './EvidencePanel'
 
 const STAGES: { key: AbmEvent['stage']; label: string }[] = [
-  { key: 'seed_society', label: 'بناء المجتمع' },
-  { key: 'calibrate', label: 'المعايرة' },
+  { key: 'seed_society',    label: 'بناء المجتمع' },
+  { key: 'research_intake', label: 'استرجاع الأدلة' },
+  { key: 'calibrate',       label: 'المعايرة' },
   { key: 'simulate_problem', label: 'محاكاة الأزمة' },
   { key: 'simulate_solution', label: 'محاكاة الحلّ' },
-  { key: 'evidence', label: 'الأدلة العلمية' },
-  { key: 'synthesize', label: 'الخلاصة' },
+  { key: 'synthesize',      label: 'الخلاصة' },
 ]
 
 const CONF_AR: Record<string, string> = { high: 'مرتفعة', medium: 'متوسطة', low: 'منخفضة' }
@@ -55,15 +55,15 @@ export default function AgentBasedSimulation() {
   const [calib, setCalib] = useState<AbmCalibration | null>(null)
   const [sim, setSim] = useState<AbmEvent | null>(null)
   const [timeline, setTimeline] = useState<AbmTimelineEvent[]>([])
-  const [evidence, setEvidence] = useState<ScenarioEvidence[]>([])
-  const [evidenceAbstained, setEvidenceAbstained] = useState(false)
+  const [research, setResearch] = useState<AbmResearchInsights | null>(null)
+  const [papers, setPapers] = useState<ScenarioEvidence[]>([])
   const [synthesis, setSynthesis] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const reset = useCallback(() => {
     abortRef.current?.abort()
     setDone(new Set()); setPops(null); setEngineNotes(null); setCalib(null)
-    setSim(null); setTimeline([]); setEvidence([]); setEvidenceAbstained(false)
+    setSim(null); setTimeline([]); setResearch(null); setPapers([])
     setSynthesis(null); setError(null)
   }, [])
 
@@ -85,10 +85,10 @@ export default function AgentBasedSimulation() {
       case 'compare':
         setTimeline(e.intervention_timeline ?? [])
         break
-      case 'evidence':
+      case 'research_intake':
         if (e.status === 'done') {
-          setEvidence(e.items ?? [])
-          setEvidenceAbstained(!!e.abstained)
+          setResearch(e.insights ?? null)
+          setPapers((e.papers ?? []) as ScenarioEvidence[])
         }
         break
       case 'synthesize':
@@ -287,10 +287,57 @@ export default function AgentBasedSimulation() {
         </motion.div>
       )}
 
-      {/* scholarly evidence (OpenAlex open-access — same papers as Sci-Hub, legal route) */}
-      {(evidence.length > 0 || evidenceAbstained) && (
+      {/* Research-informed parameters panel — shown BEFORE charts, explaining what papers contributed */}
+      {research && (
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+            <FlaskConical className="h-3.5 w-3.5 text-blue" />
+            معايرة مستنِدة إلى الأدلة العلمية
+            <span className="ms-1 rounded bg-blue/10 px-1.5 py-0.5 font-mono normal-case tracking-normal text-blue">
+              {research.n_contributing}/{research.n_papers} papers contributed
+            </span>
+          </div>
+          <p className="mb-3 text-[12px] leading-relaxed text-muted" dir="rtl">{research.notes_ar}</p>
+
+          {/* What each paper contributed */}
+          {research.sources.length > 0 && (
+            <div className="mb-3 space-y-1.5">
+              {research.sources.map((s, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-lg border border-border/50 bg-soft/40 px-3 py-2">
+                  <span className="mt-0.5 font-mono text-[10px] text-faint">[{s.year ?? '—'}]</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[12px] font-medium text-txt">{s.title}</p>
+                    <p className="text-[10px] text-blue" dir="ltr">{s.contribution}</p>
+                  </div>
+                  {s.doi && (
+                    <a href={`https://doi.org/${s.doi}`} target="_blank" rel="noopener noreferrer"
+                      className="shrink-0 text-[10px] text-faint underline hover:text-txt">DOI</a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Recommended interventions from literature */}
+          {research.interventions.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-[11px] text-faint" dir="auto">تدخّلات مقترحة من الأدبيات:</span>
+              {research.interventions.map((iv) => (
+                <span key={iv}
+                  className="rounded-full border border-blue/30 bg-blue/10 px-2.5 py-0.5 text-[11px] font-medium text-blue capitalize">
+                  {iv}
+                </span>
+              ))}
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Full evidence panel with open-access links */}
+      {papers.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-          <EvidencePanel items={evidence} abstained={evidenceAbstained} />
+          <EvidencePanel items={papers} abstained={false} />
         </motion.div>
       )}
 
