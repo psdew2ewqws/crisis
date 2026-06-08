@@ -289,81 +289,101 @@ def _phase_narrative(dom, ph, affected, deaths, injured, displaced, intervene, r
 
 
 # ── LLM layer ─────────────────────────────────────────────────────────────────
+def _parse_narratives(out: str, n: int) -> Optional[List[str]]:
+    """Robustly extract narrative strings from a model reply — tolerant of markdown
+    fences, {"narratives":[...]}, a bare array, or a numbered list. None if nothing."""
+    if not out:
+        return None
+    cleaned = re.sub(r"```(?:json)?", "", out).strip()
+    # 1) JSON object with a list under a known key
+    for m in re.finditer(r"\{.*\}", cleaned, re.DOTALL):
+        try:
+            obj = json.loads(m.group(0))
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            for key in ("narratives", "steps", "phases", "items"):
+                v = obj.get(key)
+                if isinstance(v, list) and v:
+                    lst = [x if isinstance(x, str)
+                           else (x.get("narrative_ar") or x.get("narrative") or "")
+                           for x in v]
+                    lst = [s for s in lst if s]
+                    if lst:
+                        return lst
+    # 2) bare JSON array of strings
+    m = re.search(r"\[.*\]", cleaned, re.DOTALL)
+    if m:
+        try:
+            arr = json.loads(m.group(0))
+            strs = [x for x in arr if isinstance(x, str) and x.strip()]
+            if strs:
+                return strs
+        except Exception:
+            pass
+    # 3) line list (strip bullets/numbering)
+    lines = [re.sub(r"^\s*(?:[-*•]|\d+[.)،-])\s*", "", ln).strip() for ln in cleaned.splitlines()]
+    lines = [ln for ln in lines if len(ln) > 15]
+    return lines or None
+
+
+def _clean_narr(s: str) -> str:
+    """Strip an echoed 'سرد N:' / 'النص N:' / 'N:' prefix the model sometimes adds."""
+    return re.sub(r"^\s*(?:سرد|النص|المرحلة)?\s*\d+\s*[:：.\-]\s*", "", s or "").strip()
+
+
 def _llm_timeline(text: str, base: Dict[str, Any], papers: List[Dict[str, Any]],
                   intervene: bool, interventions: List[str]) -> Optional[Dict[str, Any]]:
-    """Ask the model to rewrite the deterministic timeline with richer, paper-grounded
-    specifics — STRICT JSON matching the same schema. Returns None on any failure."""
+    """Enrich ONLY the per-phase narrative via the model — the numbers stay
+    demographically grounded. Asks for a simple JSON array of strings, which the
+    model reproduces far more reliably than a full numeric schema. None on failure."""
     if _llm is None or not _llm.available():
         return None
     ev_lines = []
     for p in papers[:4]:
-        sn = (p.get("snippet") or "")[:200]
-        ev_lines.append(f"- {p.get('title','')[:80]} ({p.get('year')}): {sn}")
+        sn = (p.get("snippet") or "")[:180]
+        if sn:
+            ev_lines.append(f"- {p.get('title','')[:80]} ({p.get('year')}): {sn}")
     evidence = "\n".join(ev_lines) or "(لا مصادر)"
-    skeleton = json.dumps({"steps": [
-        {"t": s["t"], "label_ar": s["label_ar"], "phase": s["phase"],
-         "affected": s["affected"], "casualties": s["casualties"],
-         "injured": s["injured"], "displaced": s["displaced"],
-         "hospital_load_pct": s["hospital_load_pct"]}
-        for s in base["steps"]
-    ]}, ensure_ascii=False)
 
-    role = "حلّ" if intervene else "أزمة"
-    iv = f"التدخّلات المتاحة: {', '.join(interventions)}." if (intervene and interventions) else ""
+    n = len(base["steps"])
+    phase_facts = "\n".join(
+        f"{i+1}. {s['label_ar']} — متأثّرون {s['affected']:,}، وفيات {s['casualties']:,}، "
+        f"إصابات {s['injured']:,}، نازحون {s['displaced']:,}، إشغال المستشفيات {s['hospital_load_pct']}٪"
+        for i, s in enumerate(base["steps"])
+    )
+    role = "بعد تطبيق التدخّل والحلول" if intervene else "دون أيّ تدخّل"
+    iv = f" التدخّلات المتاحة: {', '.join(interventions)}." if (intervene and interventions) else ""
+
     sysmsg = (
-        "أنت محاكي أزمات للأردن. أعطيتُك خطًّا زمنيًّا أوّليًّا بأرقام تقديرية "
-        "وعدد سكان المحافظات وأدلّة علمية. أعد صياغة كل مرحلة بسرد واقعي محدّد "
-        "(ماذا يحدث فعليًّا، من يتأثّر) واضبط الأرقام لتكون متّسقة مع الأدلّة وسكان "
-        "الأردن. لا تختلق أرقامًا مبالغًا فيها. أعد JSON فقط بنفس البنية مع حقل "
-        "narrative_ar عربي لكل مرحلة. لا نص خارج JSON."
+        "أنت محاكي أزمات خبير بالأردن. اسرد ما يحدث فعليًّا في كل مرحلة بلغة عربية "
+        "واضحة ومحدّدة (من يتأثّر، ماذا يحدث على الأرض، حالة الخدمات والبنية التحتية), "
+        "مستندًا إلى الأرقام والأدلّة المعطاة دون اختلاق أرقام جديدة. "
+        f"أعد مصفوفة JSON من {n} نصوص فقط بالترتيب: [\"سرد 1\", \"سرد 2\", ...]. "
+        "لا تكتب أيّ شيء خارج المصفوفة."
     )
     user = (
         f"السيناريو ({role}): {text[:400]}\n"
-        f"المجال: {base['domain']} | السكان المعرّضون: {base['exposed_population']:,}\n"
-        f"{iv}\n"
+        f"المجال: {base['domain']} | السكان المعرّضون: {base['exposed_population']:,}{iv}\n"
         f"الأدلّة العلمية:\n{evidence}\n\n"
-        f"الخط الزمني الأوّلي (اضبطه وأضف narrative_ar لكل مرحلة):\n{skeleton}\n\n"
-        f"أعد JSON: {{\"steps\":[{{\"t\":..,\"label_ar\":..,\"phase\":..,\"affected\":int,"
-        f"\"casualties\":int,\"injured\":int,\"displaced\":int,\"hospital_load_pct\":int,"
-        f"\"infrastructure\":\"..\",\"narrative_ar\":\"..\"}}]}}"
+        f"المراحل وأرقامها (اسرد كلًّا منها في ٢-٣ جمل):\n{phase_facts}\n\n"
+        f"أعد مصفوفة JSON من {n} نصوص عربية بالترتيب."
     )
     try:
-        out = _llm.chat(sysmsg, user, temperature=0.4, max_tokens=1400, timeout=40)
-        if not out:
+        out = _llm.chat(sysmsg, user, temperature=0.5, max_tokens=1600, timeout=120)
+        narrs = _parse_narratives(out or "", n)
+        if not narrs:
             return None
-        # extract the first JSON object
-        m = re.search(r"\{.*\}", out, re.DOTALL)
-        if not m:
-            return None
-        parsed = json.loads(m.group(0))
-        llm_steps = parsed.get("steps")
-        if not isinstance(llm_steps, list) or not llm_steps:
-            return None
-        # merge: keep deterministic by_gov, take LLM narrative + adjusted figures
         merged_steps = []
         for i, base_step in enumerate(base["steps"]):
-            ls = llm_steps[i] if i < len(llm_steps) else {}
-            merged_steps.append({
-                **base_step,
-                "affected": int(ls.get("affected", base_step["affected"]) or base_step["affected"]),
-                "casualties": int(ls.get("casualties", base_step["casualties"]) or base_step["casualties"]),
-                "injured": int(ls.get("injured", base_step["injured"]) or base_step["injured"]),
-                "displaced": int(ls.get("displaced", base_step["displaced"]) or base_step["displaced"]),
-                "hospital_load_pct": int(ls.get("hospital_load_pct", base_step["hospital_load_pct"]) or base_step["hospital_load_pct"]),
-                "infrastructure": (ls.get("infrastructure") or base_step["infrastructure"])[:120],
-                "narrative_ar": (ls.get("narrative_ar") or base_step["narrative_ar"])[:400],
-            })
+            narr = (_clean_narr(narrs[i]) if i < len(narrs) else "") or base_step["narrative_ar"]
+            merged_steps.append({**base_step, "narrative_ar": narr[:500]})
         result = dict(base)
         result["engine"] = "llm"
         result["steps"] = merged_steps
-        result["totals"] = {
-            "affected": max(s["affected"] for s in merged_steps),
-            "casualties": max(s["casualties"] for s in merged_steps),
-            "injured": max(s["injured"] for s in merged_steps),
-            "displaced": max(s["displaced"] for s in merged_steps),
-        }
-        result["method_note_ar"] = ("سرد مولّد بالذكاء الاصطناعي ومُقيَّد بعدد سكان الأردن "
-                                    "والأدلّة العلمية والخط الزمني الكمّي — تقديرات استكشافية.")
+        result["method_note_ar"] = (
+            "الأرقام مُقدّرة من سكان الأردن × الشدّة × نسب الأدبيات؛ والسرد مولّد "
+            "بالذكاء الاصطناعي ومُقيَّد بهذه الأرقام والأدلّة — تقديرات استكشافية لدعم القرار.")
         return result
     except Exception:
         return None

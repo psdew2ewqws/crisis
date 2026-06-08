@@ -69,7 +69,7 @@ LLM_BASE_URL = _env("LLM_BASE_URL", "http://localhost:11434").rstrip("/")
 # Optional cloud API key. When set, it is sent as `Authorization: Bearer <key>`
 # so the OpenAI-compatible path works with OpenAI / Groq / Together / OpenRouter /
 # Ollama Cloud, etc. Falls back to OPENAI_API_KEY for convenience. Empty = local.
-LLM_API_KEY = _env("LLM_API_KEY", "") or _env("OPENAI_API_KEY", "")
+LLM_API_KEY = _env("LLM_API_KEY", "") or _env("OPENAI_API_KEY", "") or _env("AI_KEY", "")
 # Default chat/reasoning model: Kimi K2.5 served via Ollama cloud (Ollama Pro).
 # Any local tag (e.g. gemma4:26B) works too — the transport is identical.
 LLM_MODEL = _env("LLM_MODEL", "kimi-k2.5:cloud")
