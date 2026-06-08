@@ -105,10 +105,10 @@ export default function AgentBasedSimulation() {
   const run = useCallback(async () => {
     const txt = text.trim()
     if (txt.length < 6) return
-    abortRef.current?.abort()
+    abortRef.current?.abort()   // cancel any in-flight run
+    reset()                     // clear state (also calls abort, which is now a no-op on old ref)
     const controller = new AbortController()
-    abortRef.current = controller
-    reset()
+    abortRef.current = controller   // set ref AFTER reset so reset doesn't cancel new controller
     setRunning(true)
     try {
       await streamAbm(
