@@ -1,22 +1,35 @@
 import 'leaflet/dist/leaflet.css'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet'
-import type { Map as LeafletMap, CircleMarker as LeafletCircleMarker } from 'leaflet'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MapContainer, GeoJSON, CircleMarker, Popup } from 'react-leaflet'
+import type { Map as LeafletMap, CircleMarker as LeafletCircleMarker, PathOptions } from 'leaflet'
+import type { Feature } from 'geojson'
 import { Radio, ExternalLink, Loader2 } from 'lucide-react'
 import {
   getRssSignals, getCaseStudiesMap, relTime,
   SEVERITY_COLOR, SEVERITY_RADIUS, CATEGORIES, SEVERITIES,
   type RssSignal, type RssCategory, type RssSeverity, type CaseStudySignal,
 } from '../lib/rss'
+import meGeoJSON from '../lib/middle-east-geojson'
 
 // ── Map constants ────────────────────────────────────────────────────────────
 const CENTER: [number, number] = [29.0, 42.0]
 const ZOOM = 4
 const MAX_BOUNDS: [[number, number], [number, number]] = [[12, 24], [42, 62]]
-const DARK_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-const DARK_ATTR =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
 const POLL_MS = 20000
+
+// ── Country style: bright when live data present, dim otherwise ──────────────
+function makeCountryStyle(countriesWithData: Set<string>) {
+  return (feature?: Feature): PathOptions => {
+    const name: string = (feature?.properties as { name?: string } | null)?.name ?? ''
+    const hasData = countriesWithData.has(name)
+    return {
+      fillColor:   hasData ? '#1e3a5f' : '#0d1117',
+      fillOpacity: hasData ? 0.85 : 0.45,
+      color:       hasData ? '#3b82f6' : '#1c2333',
+      weight:      hasData ? 1.2 : 0.5,
+    }
+  }
+}
 
 const CAT_COLOR: Record<RssCategory, string> = {
   conflict: '#ef4444', disaster: '#f97316', health: '#34d399',
@@ -229,6 +242,16 @@ export default function MiddleEastMap() {
   )
   const feed = useMemo(() => filtered.slice(0, 20), [filtered])
 
+  // Countries that have at least one live signal — used to light up polygons.
+  const countriesWithData = useMemo<Set<string>>(
+    () => new Set(signals.map(s => s.country).filter(Boolean) as string[]),
+    [signals],
+  )
+  const countryStyle = useCallback(
+    (feature?: Feature) => makeCountryStyle(countriesWithData)(feature),
+    [countriesWithData],
+  )
+
   const toggleCat = (c: RssCategory) =>
     setCatOn(prev => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n })
   const toggleSev = (s: RssSeverity) =>
@@ -293,10 +316,16 @@ export default function MiddleEastMap() {
             maxBounds={MAX_BOUNDS}
             maxBoundsViscosity={0.8}
             scrollWheelZoom
-            style={{ height: 480, width: '100%' }}
+            style={{ height: 480, width: '100%', background: '#0d1117' }}
             ref={(m) => { if (m) mapRef.current = m }}
+            attributionControl={false}
           >
-            <TileLayer url={DARK_URL} attribution={DARK_ATTR} subdomains="abcd" />
+            {/* Data-only country polygons — no tile layer */}
+            <GeoJSON
+              data={meGeoJSON}
+              style={countryStyle}
+              key={countriesWithData.size}
+            />
             {located.map(sig => (
               <SignalMarker key={sig.id} sig={sig} selected={selectedId === sig.id} onSelect={onSelect} />
             ))}
@@ -387,7 +416,7 @@ export default function MiddleEastMap() {
             أحداث مباشرة ({located.length})
           </span>
         </div>
-        <span>live RSS · {lastFetch ? `last fetch ${relTime(lastFetch)}` : 'awaiting first fetch'} · CARTO / OSM</span>
+        <span>live RSS · {lastFetch ? `last fetch ${relTime(lastFetch)}` : 'awaiting first fetch'} · Natural Earth</span>
       </div>
     </div>
   )
