@@ -8,6 +8,8 @@ pydantic==2.10.4
 openpyxl==3.1.5
 requests>=2.31.0
 beautifulsoup4>=4.12.0
+# live Middle East RSS crisis-signal aggregator (in-memory; news_rss.py)
+feedparser>=6.0.0
 # optional — the Deer Graph flow & Mesa simulation degrade gracefully if absent
 langgraph==0.2.60
 mesa==3.1.1

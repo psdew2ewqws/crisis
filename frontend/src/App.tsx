@@ -5,7 +5,7 @@ import Sidebar, { type CaseRow } from './components/Sidebar'
 import Topbar from './components/Topbar'
 import KpiCard from './components/KpiCard'
 import PopulationClock from './components/PopulationClock'
-import JordanMap from './components/JordanMap'
+import MiddleEastMap from './components/MiddleEastMap'
 import DataTable from './components/DataTable'
 import LiveGraph from './components/LiveGraph'
 import Onboarding from './components/Onboarding'
@@ -536,7 +536,7 @@ function DashboardView({
           ))}
         </div>
         <div className="mt-4">
-          <JordanMap />
+          <MiddleEastMap />
         </div>
         <div className="mt-4"><DataTable onRun={onRun} service={service} query={query} /></div>
       </div>

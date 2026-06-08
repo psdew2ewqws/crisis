@@ -12,12 +12,32 @@ Endpoints:
 from __future__ import annotations
 import json
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from . import db, graph_builder, rootcause
+
+# Live Middle East RSS crisis-signal aggregator (in-memory). Optional: the app
+# starts cleanly even if the module or feedparser is missing.
+try:
+    from . import news_rss  # noqa: F401
+except Exception:
+    news_rss = None  # type: ignore
+
+
+@asynccontextmanager
+async def lifespan(_app: "FastAPI"):
+    # Kick off the RSS background fetcher; its loop runs one fetch immediately,
+    # then every 90s. Non-blocking so server startup stays fast.
+    if news_rss is not None:
+        try:
+            news_rss.start_background_fetcher()
+        except Exception:
+            pass
+    yield
 
 # Optional advanced engines: the LangGraph "Deer Graph" flow and the Mesa
 # agent-based simulation. Both degrade gracefully to the inline versions below.
@@ -34,12 +54,19 @@ except Exception:
     mesa_sim = None  # type: ignore
     _HAS_MESA = False
 
-app = FastAPI(title="AEGIS Deer Graph", version="1.0")
+app = FastAPI(title="AEGIS Deer Graph", version="1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?",
     allow_methods=["*"], allow_headers=["*"],
 )
+
+# Live RSS crisis-signal feed: /api/rss/signals, /api/rss/sources, /api/rss/stats
+try:
+    from . import api_rss
+    app.include_router(api_rss.router)
+except Exception:
+    pass
 
 # v2 console endpoints: /api/signals, /api/kpis, /api/signal-volume,
 # /api/solutions, /api/decisions, /api/narrate, /api/graph2

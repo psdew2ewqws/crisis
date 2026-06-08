@@ -1,112 +1,228 @@
-"""Live RSS news for Jordan, geolocated to governorates.
+"""Live Middle East crisis-signal RSS aggregator — in-memory, no database.
 
-Pulls one Google News RSS *search* per governorate (Arabic query), parses it
-with the stdlib XML parser, assigns each article to a governorate
-(deterministic from the query, refined by an alias keyword second-pass),
-de-duplicates across queries, and serves the result from a 5-minute in-memory
-TTL cache.
+Fetches a set of regional news RSS feeds on a 90-second background loop, parses
+each item with :mod:`feedparser`, geolocates it from a keyword→centroid table,
+classifies category + severity with keyword heuristics, deduplicates by a hash of
+the article link, and keeps a rolling window of the most-recent
+:class:`CrisisSignal` items in memory. The ``api_rss`` router serves them at
+``/api/rss/signals|sources|stats``.
 
-Persistence: after every RSS refresh, articles are upserted into the
-``aegis_news`` table (see migrations/create_news_table.py). On startup the
-cache is seeded from the DB so the first API call is instant even before the
-first RSS refresh completes.
-
-The router in ``main_v2.py`` imports this lazily via ``_opt_import`` and the
-``GET /api/news`` endpoint calls :func:`get_news_by_gov`. If this module fails
-to import the endpoint degrades gracefully.
+Design notes
+------------
+* **No DB.** Everything lives in a module-level store guarded by a lock. The old
+  ``aegis_news`` table and its migration are gone.
+* **Resilient.** A single dead/relocated feed never crashes a fetch cycle — the
+  per-feed error is logged and recorded in the source-status table, and the rest
+  of the feeds still load. If *every* feed fails we keep serving the last good
+  data instead of returning nothing.
+* **Cheap.** No external geocoding/news APIs: geolocation is a hardcoded
+  place-name → centroid table covering the Middle East + North Africa.
 """
 from __future__ import annotations
 
 import hashlib
 import html
+import logging
 import re
 import threading
 import time
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
-from typing import Any, Dict, List, Optional
-from urllib.parse import quote
-from xml.etree import ElementTree as ET
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-# ── Governorates ────────────────────────────────────────────────────────────
-# Canonical ids MUST match GOV_ID in the frontend JordanMap.tsx:
-# maan / jerash / ajloun (not ma'an / jarash / ajlun).
-_GOV_ALIASES: Dict[str, List[str]] = {
-    "amman":   ["amman", "عمان"],
-    "zarqa":   ["zarqa", "الزرقاء", "الزرقا"],
-    "irbid":   ["irbid", "إربد", "اربد"],
-    "balqa":   ["balqa", "balqaa", "البلقاء", "السلط"],
-    "mafraq":  ["mafraq", "المفرق"],
-    "madaba":  ["madaba", "مادبا"],
-    "karak":   ["karak", "al karak", "الكرك"],
-    "tafilah": ["tafilah", "tafila", "الطفيلة"],
-    "maan":    ["maan", "ma'an", "معان"],
-    "aqaba":   ["aqaba", "العقبة"],
-    "ajloun":  ["ajloun", "ajlun", "عجلون"],
-    "jerash":  ["jerash", "jarash", "جرش"],
-}
-# The Arabic name used to *query* Google News for each governorate.
-_GOV_QUERY_AR: Dict[str, str] = {
-    "amman": "عمان", "zarqa": "الزرقاء", "irbid": "إربد", "balqa": "البلقاء",
-    "mafraq": "المفرق", "madaba": "مادبا", "karak": "الكرك", "tafilah": "الطفيلة",
-    "maan": "معان", "aqaba": "العقبة", "ajloun": "عجلون", "jerash": "جرش",
-}
+try:
+    import feedparser  # type: ignore
+except Exception:  # pragma: no cover - feedparser is a hard dep but stay import-safe
+    feedparser = None  # type: ignore
 
-_TTL_SECONDS = 300
+from pydantic import BaseModel
+
+log = logging.getLogger("aegis.rss")
+
+# ── Configuration ────────────────────────────────────────────────────────────
+FETCH_INTERVAL_SECONDS = 90
+MAX_ITEMS = 500
+_REQUEST_TIMEOUT = 15
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     )
 }
-_ATOM = "{http://www.w3.org/2005/Atom}"
+
+# (display name, feed URL). Some may be dead/relocated — the fetch loop skips any
+# that fail and records the error in the source-status table.
+_FEEDS: List[Tuple[str, str]] = [
+    ("Al Jazeera English",   "https://www.aljazeera.com/xml/rss/all.xml"),
+    ("Al Jazeera Arabic",    "https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9"),
+    ("Al Arabiya English",   "https://english.alarabiya.net/tools/rss"),
+    ("Gulf News",            "https://gulfnews.com/rss"),
+    ("Jordan Times",         "https://www.jordantimes.com/rss.xml"),
+    ("Middle East Eye",      "https://www.middleeasteye.net/rss"),
+    ("Middle East Monitor",  "https://www.middleeastmonitor.com/feed/"),
+    ("Arab News",            "https://www.arabnews.com/rss.xml"),
+    ("The National UAE",     "https://www.thenationalnews.com/arc/outboundfeeds/rss/?outputType=xml"),
+    ("Times of Israel",      "https://www.timesofisrael.com/feed/"),
+    # Reliable, bot-friendly regional desks — keep coverage strong even when the
+    # outlets above are blocked/relocated from a given network.
+    ("BBC Middle East",      "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml"),
+    ("France24 Middle East", "https://www.france24.com/en/middle-east/rss"),
+]
+
+# ── Geolocation table ────────────────────────────────────────────────────────
+# place needle → (country, lat, lng). Latin needles are matched on word
+# boundaries; non-ASCII (Arabic) needles via plain substring. First match wins,
+# title scanned before summary. Cities resolve to their own coordinates but carry
+# the country name so map + stats group correctly.
+_PLACES: List[Tuple[str, str, float, float]] = [
+    # Jordan
+    ("amman", "Jordan", 31.95, 35.93), ("jordan", "Jordan", 31.95, 35.93),
+    ("عمان", "Jordan", 31.95, 35.93), ("الأردن", "Jordan", 31.95, 35.93),
+    # Palestine
+    ("gaza", "Palestine", 31.50, 34.47), ("ramallah", "Palestine", 31.90, 35.20),
+    ("west bank", "Palestine", 31.95, 35.30), ("rafah", "Palestine", 31.29, 34.25),
+    ("khan younis", "Palestine", 31.34, 34.30), ("palestin", "Palestine", 31.90, 35.20),
+    ("غزة", "Palestine", 31.50, 34.47), ("رام الله", "Palestine", 31.90, 35.20),
+    ("الضفة", "Palestine", 31.95, 35.30), ("فلسطين", "Palestine", 31.90, 35.20),
+    # Israel
+    ("tel aviv", "Israel", 32.08, 34.78), ("jerusalem", "Israel", 31.78, 35.22),
+    ("al-quds", "Israel", 31.78, 35.22), ("al quds", "Israel", 31.78, 35.22),
+    ("haifa", "Israel", 32.79, 34.99), ("israel", "Israel", 32.08, 34.78),
+    ("تل أبيب", "Israel", 32.08, 34.78), ("القدس", "Israel", 31.78, 35.22),
+    ("إسرائيل", "Israel", 32.08, 34.78),
+    # Lebanon
+    ("beirut", "Lebanon", 33.89, 35.50), ("lebanon", "Lebanon", 33.89, 35.50),
+    ("بيروت", "Lebanon", 33.89, 35.50), ("لبنان", "Lebanon", 33.89, 35.50),
+    # Syria
+    ("damascus", "Syria", 33.51, 36.29), ("dimashq", "Syria", 33.51, 36.29),
+    ("aleppo", "Syria", 36.20, 37.16), ("homs", "Syria", 34.73, 36.71),
+    ("syria", "Syria", 33.51, 36.29), ("دمشق", "Syria", 33.51, 36.29),
+    ("حلب", "Syria", 36.20, 37.16), ("سوريا", "Syria", 33.51, 36.29),
+    # Iraq
+    ("baghdad", "Iraq", 33.31, 44.36), ("erbil", "Iraq", 36.19, 44.01),
+    ("basra", "Iraq", 30.51, 47.78), ("mosul", "Iraq", 36.34, 43.13),
+    ("iraq", "Iraq", 33.31, 44.36), ("بغداد", "Iraq", 33.31, 44.36),
+    ("أربيل", "Iraq", 36.19, 44.01), ("البصرة", "Iraq", 30.51, 47.78),
+    ("العراق", "Iraq", 33.31, 44.36),
+    # Egypt
+    ("cairo", "Egypt", 30.04, 31.24), ("alexandria", "Egypt", 31.20, 29.92),
+    ("egypt", "Egypt", 30.04, 31.24), ("القاهرة", "Egypt", 30.04, 31.24),
+    ("الإسكندرية", "Egypt", 31.20, 29.92), ("مصر", "Egypt", 30.04, 31.24),
+    # Saudi Arabia
+    ("riyadh", "Saudi Arabia", 24.71, 46.68), ("jeddah", "Saudi Arabia", 21.49, 39.19),
+    ("mecca", "Saudi Arabia", 21.39, 39.86), ("saudi", "Saudi Arabia", 24.71, 46.68),
+    ("الرياض", "Saudi Arabia", 24.71, 46.68), ("جدة", "Saudi Arabia", 21.49, 39.19),
+    ("السعودية", "Saudi Arabia", 24.71, 46.68),
+    # UAE
+    ("abu dhabi", "UAE", 24.45, 54.38), ("dubai", "UAE", 25.20, 55.27),
+    ("emirates", "UAE", 24.45, 54.38), ("u.a.e", "UAE", 24.45, 54.38),
+    ("أبوظبي", "UAE", 24.45, 54.38), ("دبي", "UAE", 25.20, 55.27),
+    ("الإمارات", "UAE", 24.45, 54.38),
+    # Gulf states
+    ("kuwait", "Kuwait", 29.38, 47.99), ("الكويت", "Kuwait", 29.38, 47.99),
+    ("manama", "Bahrain", 26.23, 50.59), ("bahrain", "Bahrain", 26.23, 50.59),
+    ("البحرين", "Bahrain", 26.23, 50.59),
+    ("doha", "Qatar", 25.29, 51.53), ("qatar", "Qatar", 25.29, 51.53),
+    ("الدوحة", "Qatar", 25.29, 51.53), ("قطر", "Qatar", 25.29, 51.53),
+    ("muscat", "Oman", 23.59, 58.41), ("oman", "Oman", 23.59, 58.41),
+    ("عُمان", "Oman", 23.59, 58.41), ("سلطنة عمان", "Oman", 23.59, 58.41),
+    # Yemen
+    ("sanaa", "Yemen", 15.37, 44.19), ("aden", "Yemen", 12.79, 45.02),
+    ("yemen", "Yemen", 15.37, 44.19), ("صنعاء", "Yemen", 15.37, 44.19),
+    ("عدن", "Yemen", 12.79, 45.02), ("اليمن", "Yemen", 15.37, 44.19),
+    # Iran
+    ("tehran", "Iran", 35.69, 51.39), ("iran", "Iran", 35.69, 51.39),
+    ("طهران", "Iran", 35.69, 51.39), ("إيران", "Iran", 35.69, 51.39),
+    # Turkey
+    ("ankara", "Turkey", 39.93, 32.86), ("istanbul", "Turkey", 41.01, 28.98),
+    ("turkey", "Turkey", 39.93, 32.86), ("türkiye", "Turkey", 39.93, 32.86),
+    ("أنقرة", "Turkey", 39.93, 32.86), ("إسطنبول", "Turkey", 41.01, 28.98),
+    ("تركيا", "Turkey", 39.93, 32.86),
+    # North Africa
+    ("tripoli", "Libya", 32.89, 13.19), ("libya", "Libya", 32.89, 13.19),
+    ("طرابلس", "Libya", 32.89, 13.19), ("ليبيا", "Libya", 32.89, 13.19),
+    ("tunis", "Tunisia", 36.81, 10.18), ("tunisia", "Tunisia", 36.81, 10.18),
+    ("تونس", "Tunisia", 36.81, 10.18),
+    ("rabat", "Morocco", 34.02, -6.84), ("casablanca", "Morocco", 33.57, -7.59),
+    ("morocco", "Morocco", 34.02, -6.84), ("الرباط", "Morocco", 34.02, -6.84),
+    ("المغرب", "Morocco", 34.02, -6.84),
+    ("algiers", "Algeria", 36.75, 3.06), ("algeria", "Algeria", 36.75, 3.06),
+    ("الجزائر", "Algeria", 36.75, 3.06),
+    ("khartoum", "Sudan", 15.50, 32.56), ("sudan", "Sudan", 15.50, 32.56),
+    ("الخرطوم", "Sudan", 15.50, 32.56), ("السودان", "Sudan", 15.50, 32.56),
+]
+
+# Pre-compile a word-boundary regex for each Latin needle (Arabic stays substring).
+_PLACE_MATCHERS: List[Tuple[Any, str, float, float]] = []
+for _needle, _country, _lat, _lng in _PLACES:
+    if _needle.isascii():
+        _PLACE_MATCHERS.append((re.compile(r"\b" + re.escape(_needle) + r"\b"), _country, _lat, _lng))
+    else:
+        _PLACE_MATCHERS.append((_needle, _country, _lat, _lng))
+
+# ── Category + severity keyword tables ───────────────────────────────────────
+# Keyword tables are bilingual: the working feeds include Arabic-language desks
+# (Al Jazeera Arabic), so Arabic stems are listed alongside English ones.
+_CATEGORY_KW: List[Tuple[str, Tuple[str, ...]]] = [
+    ("conflict", ("war", "military", "attack", "bomb", "strike", "airstrike", "missile",
+                  "soldier", "troops", "ceasefire", "clashes", "militia", "insurgent",
+                  "explosion", "shelling", "offensive", "hostage", "drone",
+                  "غارة", "قصف", "هجوم", "صاروخ", "حرب", "اشتباك", "انفجار", "جيش", "عسكري")),
+    ("disaster", ("earthquake", "flood", "wildfire", "fire", "drought", "storm", "tsunami",
+                  "landslide", "cyclone", "hurricane", "volcanic", "famine",
+                  "زلزال", "فيضان", "حريق", "سيول", "جفاف", "إعصار", "مجاعة")),
+    ("health",   ("pandemic", "epidemic", "outbreak", "cholera", "virus", "hospital", "who",
+                  "disease", "vaccination", "health crisis", "infection", "malnutrition",
+                  "وباء", "مستشفى", "تفشي", "مرض", "إصابة", "لقاح", "صحة")),
+    ("political", ("election", "protest", "government", "parliament", "coup", "sanctions",
+                   "diplomacy", "summit", "referendum", "minister", "president", "talks",
+                   "انتخابات", "احتجاج", "حكومة", "برلمان", "عقوبات", "مفاوضات", "وزير", "رئيس")),
+    ("economic", ("inflation", "unemployment", "debt", "oil price", "trade", "gdp",
+                  "recession", "currency", "economic crisis", "poverty", "budget",
+                  "تضخم", "بطالة", "اقتصاد", "ديون", "أسعار", "فقر", "موازنة")),
+]
+
+_SEVERITY_KW: List[Tuple[str, Tuple[str, ...]]] = [
+    ("critical", ("kill", "killed", "death toll", "massacre", "emergency", "catastrophe",
+                  "mass casualty", "genocide", "deadly", "dead", "fatalities",
+                  "قتلى", "قتيل", "مقتل", "مجزرة", "شهداء", "وفاة", "كارثة", "طوارئ")),
+    ("high",     ("injured", "wounded", "escalation", "crisis", "urgent", "displaced",
+                  "refugees", "evacuat", "siege",
+                  "جرحى", "مصابين", "إصابات", "تصعيد", "أزمة", "نزوح", "لاجئين", "حصار")),
+    ("medium",   ("tensions", "concerns", "damage", "warning", "threat", "dispute",
+                  "clash", "unrest",
+                  "توتر", "تحذير", "تهديد", "أضرار", "قلق", "نزاع")),
+]
+
+# ── In-memory store ──────────────────────────────────────────────────────────
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
-
-_cache: Dict[str, Any] = {"data": None, "ts": 0.0}
-_lock = threading.Lock()
-
-# ── DB setup (lazy, import-safe) ─────────────────────────────────────────────
-_db_write: Any = None
-_db_read: Any = None
-_table_ready = False
+_lock = threading.RLock()
+_signals: Dict[str, "CrisisSignal"] = {}      # id → signal (rolling window, ≤ MAX_ITEMS)
+_sources: Dict[str, Dict[str, Any]] = {}       # name → status row
+_last_fetch: Optional[datetime] = None
+_fetcher_started = False
 
 
-def _init_db() -> None:
-    global _db_write, _db_read, _table_ready
-    if _table_ready:
-        return
-    try:
-        from . import db_write as _w
-        from . import db as _r
-        _db_write = _w
-        _db_read = _r
-        # Ensure table exists (idempotent).
-        from .migrations.create_news_table import ensure_table
-        ensure_table()
-        _table_ready = True
-    except Exception:
-        _table_ready = False  # degraded — no DB persistence, in-memory only
+# ── Model ────────────────────────────────────────────────────────────────────
+class CrisisSignal(BaseModel):
+    id: str
+    title: str
+    summary: str
+    source: str
+    link: str
+    published: datetime
+    country: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    category: str = "other"
+    severity: str = "low"
 
 
-# Run DB init at module import time (non-fatal).
-try:
-    _init_db()
-except Exception:
-    pass
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _feed_url(gov_id: str) -> str:
-    ar = _GOV_QUERY_AR.get(gov_id, gov_id)
-    q = quote(ar) + "%20" + quote("الأردن")  # append "Jordan" to suppress foreign towns
-    return f"https://news.google.com/rss/search?q={q}&hl=ar&gl=JO&ceid=JO:ar"
+# ── Helpers ──────────────────────────────────────────────────────────────────
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _strip_html(s: Optional[str]) -> str:
@@ -115,276 +231,222 @@ def _strip_html(s: Optional[str]) -> str:
     return _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", s))).strip()
 
 
-def _to_iso(raw: Optional[str]) -> Optional[str]:
-    if not raw:
+def _hash(link: str) -> str:
+    return hashlib.sha1(link.encode("utf-8")).hexdigest()[:16]
+
+
+def _to_datetime(entry: Any) -> datetime:
+    """Best-effort published time from a feedparser entry; falls back to now()."""
+    for key in ("published_parsed", "updated_parsed"):
+        st = getattr(entry, key, None) or (entry.get(key) if isinstance(entry, dict) else None)
+        if st:
+            try:
+                return datetime(*st[:6], tzinfo=timezone.utc)
+            except Exception:
+                pass
+    return _now()
+
+
+def _geolocate(title: str, summary: str) -> Tuple[Optional[str], Optional[float], Optional[float]]:
+    """Return (country, lat, lng) from the first place-name found in title→summary."""
+    for text in (title or "", summary or ""):
+        if not text:
+            continue
+        low = text.lower()
+        for matcher, country, lat, lng in _PLACE_MATCHERS:
+            if isinstance(matcher, str):
+                if matcher in text:           # Arabic substring (case preserved)
+                    return country, lat, lng
+            elif matcher.search(low):         # Latin word-boundary match
+                return country, lat, lng
+    return None, None, None
+
+
+def _classify(title: str, summary: str) -> Tuple[str, str]:
+    """Return (category, severity) from keyword heuristics; first match wins."""
+    blob = f"{title} {summary}".lower()
+    category = "other"
+    for cat, kws in _CATEGORY_KW:
+        if any(kw in blob for kw in kws):
+            category = cat
+            break
+    severity = "low"
+    for sev, kws in _SEVERITY_KW:
+        if any(kw in blob for kw in kws):
+            severity = sev
+            break
+    return category, severity
+
+
+def _build_signal(source_name: str, entry: Any) -> Optional["CrisisSignal"]:
+    title = _strip_html(getattr(entry, "title", "") or "")
+    link = (getattr(entry, "link", "") or "").strip()
+    if not title or not link:
         return None
-    raw = raw.strip()
-    # RFC 822 (RSS pubDate)
-    try:
-        dt = parsedate_to_datetime(raw)
-        if dt is not None:
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    except Exception:
-        pass
-    # ISO-8601 (Atom updated/published)
-    try:
-        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    except Exception:
-        return None
+    summary = _strip_html(getattr(entry, "summary", "") or getattr(entry, "description", "") or "")
+    if len(summary) > 600:
+        summary = summary[:600].rstrip() + "…"
+    country, lat, lng = _geolocate(title, summary)
+    category, severity = _classify(title, summary)
+    return CrisisSignal(
+        id=_hash(link),
+        title=title,
+        summary=summary,
+        source=source_name,
+        link=link,
+        published=_to_datetime(entry),
+        country=country, lat=lat, lng=lng,
+        category=category, severity=severity,
+    )
 
 
-def _norm(s: str) -> str:
-    return _WS_RE.sub(" ", (s or "").lower()).strip()
-
-
-def _extract_gov(*texts: str) -> Optional[str]:
-    """Substring alias match against the article text → canonical gov id."""
-    blob = _norm(" ".join(t for t in texts if t))
-    for gid, aliases in _GOV_ALIASES.items():
-        for a in aliases:
-            if a and a.lower() in blob:
-                return gid
-    return None
-
-
-def _parse_feed(xml_bytes: bytes) -> List[Dict[str, Any]]:
-    """Parse an RSS 2.0 or Atom feed into raw item dicts."""
-    out: List[Dict[str, Any]] = []
-    try:
-        root = ET.fromstring(xml_bytes)
-    except Exception:
-        return out
-
-    items = root.findall(".//item")
-    if items:  # RSS 2.0
-        for it in items:
-            title = (it.findtext("title") or "").strip()
-            link = (it.findtext("link") or "").strip()
-            desc = _strip_html(it.findtext("description"))
-            pub = _to_iso(it.findtext("pubDate"))
-            src_el = it.find("source")
-            source = (src_el.text.strip() if src_el is not None and src_el.text else "")
-            if title and link:
-                out.append({"title": title, "link": link, "summary": desc,
-                            "published": pub, "source": source})
-        return out
-
-    # Atom fallback
-    for en in root.findall(f".//{_ATOM}entry"):
-        title = (en.findtext(f"{_ATOM}title") or "").strip()
-        link = ""
-        link_el = en.find(f"{_ATOM}link")
-        if link_el is not None:
-            link = (link_el.get("href") or "").strip()
-        summary = _strip_html(en.findtext(f"{_ATOM}summary")
-                              or en.findtext(f"{_ATOM}content"))
-        pub = _to_iso(en.findtext(f"{_ATOM}updated")
-                      or en.findtext(f"{_ATOM}published"))
-        src_el = en.find(f"{_ATOM}source")
-        source = ""
-        if src_el is not None:
-            source = (src_el.findtext(f"{_ATOM}title") or "").strip()
-        if title and link:
-            out.append({"title": title, "link": link, "summary": summary,
-                        "published": pub, "source": source})
+def _fetch_feed(name: str, url: str) -> List["CrisisSignal"]:
+    """Fetch + parse one feed. Raises on network/parse failure (caller handles)."""
+    if feedparser is None:
+        raise RuntimeError("feedparser not installed")
+    resp = requests.get(url, headers=_HEADERS, timeout=_REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    parsed = feedparser.parse(resp.content)
+    out: List[CrisisSignal] = []
+    for entry in getattr(parsed, "entries", []) or []:
+        sig = _build_signal(name, entry)
+        if sig is not None:
+            out.append(sig)
     return out
 
 
-# ── Database persistence ──────────────────────────────────────────────────────
-_UPSERT_SQL = """
-INSERT INTO aegis_news (id, title, summary, source, link, published, gov, fetched_at)
-VALUES (%s, %s, %s, %s, %s, %s::timestamptz, %s, now())
-ON CONFLICT (id) DO UPDATE SET
-    title      = EXCLUDED.title,
-    summary    = EXCLUDED.summary,
-    source     = EXCLUDED.source,
-    gov        = EXCLUDED.gov,
-    fetched_at = now()
-"""
+# ── Fetch cycle ──────────────────────────────────────────────────────────────
+def fetch_once() -> Dict[str, Any]:
+    """Run one fetch cycle across all feeds. Never raises."""
+    global _last_fetch
+    start = time.time()
+    new_count = 0
+    ok_sources = 0
+    collected: List[CrisisSignal] = []
 
-_SEED_SQL = """
-SELECT id, title, summary, source, link,
-       to_char(published AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS published,
-       gov
-FROM aegis_news
-ORDER BY published DESC NULLS LAST
-LIMIT 2000
-"""
-
-
-def _persist(items_flat: List[Dict[str, Any]]) -> None:
-    """Upsert a batch of items into aegis_news."""
-    if not _table_ready or _db_write is None or not items_flat:
-        return
-    try:
-        with _db_write.get_conn() as conn:
-            with conn.cursor() as cur:
-                for item in items_flat:
-                    cur.execute(_UPSERT_SQL, (
-                        item["id"],
-                        item["title"][:500],
-                        item["summary"][:500],
-                        item["source"][:200],
-                        item["link"][:1000],
-                        item.get("published"),
-                        item.get("gov"),
-                    ))
-            conn.commit()
-    except Exception:
-        pass  # persistence failure must never break the API response
-
-
-def _seed_from_db() -> Optional[Dict[str, Any]]:
-    """Build a payload from the DB to seed the in-memory cache on startup."""
-    if not _table_ready or _db_read is None:
-        return None
-    try:
-        rows = _db_read.fetchall(_SEED_SQL)
-        if not rows:
-            return None
-        by_gov: Dict[str, List[Dict[str, Any]]] = {}
-        national: List[Dict[str, Any]] = []
-        for r in rows:
-            item = {
-                "id":        r["id"],
-                "title":     r["title"],
-                "summary":   r["summary"],
-                "source":    r["source"],
-                "link":      r["link"],
-                "published": r["published"],
-                "gov":       r["gov"],
-            }
-            if r["gov"]:
-                by_gov.setdefault(r["gov"], []).append(item)
-            else:
-                national.append(item)
-        total = sum(len(v) for v in by_gov.values()) + len(national)
-        return {
-            "generated_at": _now_iso(),
-            "ttl_seconds":  _TTL_SECONDS,
-            "total":        total,
-            "by_gov":       by_gov,
-            "national":     national,
-            "source":       "google_news_rss",
-            "seeded_from":  "db",
-        }
-    except Exception:
-        return None
-
-
-# ── RSS refresh ───────────────────────────────────────────────────────────────
-def _refresh() -> Dict[str, Any]:
-    """Fetch all 12 governorate feeds, geolocate, dedup, persist, and group."""
-    seen_keys: set = set()
-    by_gov: Dict[str, List[Dict[str, Any]]] = {}
-    national: List[Dict[str, Any]] = []
-    errors: List[str] = []
-    all_items: List[Dict[str, Any]] = []
-
-    for gid in _GOV_ALIASES:
+    for name, url in _FEEDS:
         try:
-            r = requests.get(_feed_url(gid), headers=_HEADERS, timeout=15)
-            if r.status_code != 200:
-                errors.append(f"{gid}:{r.status_code}")
-                continue
-            raw_items = _parse_feed(r.content)
+            items = _fetch_feed(name, url)
+            collected.extend(items)
+            ok_sources += 1
+            with _lock:
+                _sources[name] = {
+                    "name": name, "url": url, "status": "ok",
+                    "last_fetch": _now().isoformat(), "item_count": len(items),
+                }
         except Exception as e:
-            errors.append(f"{gid}:{type(e).__name__}")
-            continue
+            log.warning("RSS feed failed: %s (%s) — %s", name, url, e)
+            with _lock:
+                prev = _sources.get(name, {})
+                _sources[name] = {
+                    "name": name, "url": url, "status": "error",
+                    "last_fetch": prev.get("last_fetch"), "item_count": 0,
+                }
 
-        for raw in raw_items:
-            title, link = raw["title"], raw["link"]
-            source = raw.get("source") or ""
-            clean_title = title
-            if " - " in title:
-                head, _, tail = title.rpartition(" - ")
-                if head and tail:
-                    clean_title = head.strip()
-                    if not source:
-                        source = tail.strip()
+    # If every feed failed, keep the last good data rather than wiping the store.
+    if not collected:
+        log.warning("RSS fetch cycle produced no items — keeping previous data")
+        with _lock:
+            _last_fetch = _now()
+        return {"new": 0, "sources": ok_sources, "total": len(_signals)}
 
-            tkey = _norm(clean_title)
-            lkey = link.strip()
-            if tkey in seen_keys or lkey in seen_keys:
-                continue
-            seen_keys.add(tkey)
-            seen_keys.add(lkey)
-
-            detected = _extract_gov(clean_title, raw.get("summary", ""))
-            gov = detected or gid
-
-            summary = (raw.get("summary") or "")[:280]
-            item = {
-                "id":        hashlib.sha1(link.encode("utf-8")).hexdigest()[:12],
-                "title":     clean_title,
-                "summary":   summary,
-                "source":    source or "Google News",
-                "link":      link,
-                "published": raw.get("published"),
-                "gov":       gov,
-            }
-            by_gov.setdefault(gov, []).append(item)
-            all_items.append(item)
-
-    # Sort each bucket newest-first (nulls last).
-    for items in by_gov.values():
-        items.sort(key=lambda x: x["published"] or "", reverse=True)
-
-    total = sum(len(v) for v in by_gov.values()) + len(national)
-    payload: Dict[str, Any] = {
-        "generated_at": _now_iso(),
-        "ttl_seconds":  _TTL_SECONDS,
-        "total":        total,
-        "by_gov":       by_gov,
-        "national":     national,
-        "source":       "google_news_rss",
-    }
-    if errors and total == 0:
-        payload["source"] = "fallback"
-        payload["error"] = "; ".join(errors[:6])
-
-    # Persist to DB in the background so the caller gets the response immediately.
-    if all_items:
-        t = threading.Thread(target=_persist, args=(all_items,), daemon=True)
-        t.start()
-
-    return payload
-
-
-# ── Public API ────────────────────────────────────────────────────────────────
-def get_news_by_gov(force: bool = False) -> Dict[str, Any]:
-    """Return governorate-grouped news, served from a 5-minute TTL cache.
-
-    On the very first call the cache is seeded from the DB (instant response)
-    while a background RSS refresh is not yet due. Subsequent calls within the
-    TTL window return the cached copy. After TTL expiry the next call triggers
-    a fresh RSS fetch and DB upsert.
-    """
-    now = time.time()
     with _lock:
-        # Seed cache from DB on very first call if empty.
-        if _cache["data"] is None:
-            seeded = _seed_from_db()
-            if seeded:
-                _cache["data"] = seeded
-                _cache["ts"] = now  # treat DB seed as a fresh load
+        for sig in collected:
+            if sig.id not in _signals:
+                new_count += 1
+            _signals[sig.id] = sig
+        # Roll the window: keep the MAX_ITEMS most recent by published time.
+        if len(_signals) > MAX_ITEMS:
+            keep = sorted(_signals.values(), key=lambda s: s.published, reverse=True)[:MAX_ITEMS]
+            _signals.clear()
+            _signals.update({s.id: s for s in keep})
+        _last_fetch = _now()
+        total = len(_signals)
 
-        fresh = (
-            _cache["data"] is not None
-            and (now - _cache["ts"]) < _TTL_SECONDS
-        )
-        if fresh and not force:
-            return _cache["data"]
+    elapsed_ms = int((time.time() - start) * 1000)
+    log.info("RSS fetch complete: %d new signals from %d sources (%dms)",
+             new_count, ok_sources, elapsed_ms)
+    return {"new": new_count, "sources": ok_sources, "total": total}
 
-        data = _refresh()
-        # Keep last good payload on total fetch failure.
-        if data.get("total", 0) == 0 and _cache["data"] is not None:
-            return _cache["data"]
-        _cache["data"] = data
-        _cache["ts"] = now
-        return data
+
+def _fetch_loop() -> None:
+    while True:
+        try:
+            fetch_once()
+        except Exception as e:  # pragma: no cover - defensive
+            log.warning("RSS fetch loop error: %s", e)
+        time.sleep(FETCH_INTERVAL_SECONDS)
+
+
+def start_background_fetcher() -> None:
+    """Start the 90s background fetch loop exactly once (idempotent)."""
+    global _fetcher_started
+    with _lock:
+        if _fetcher_started:
+            return
+        _fetcher_started = True
+    threading.Thread(target=_fetch_loop, name="aegis-rss-fetcher", daemon=True).start()
+    log.info("RSS background fetcher started (interval=%ds)", FETCH_INTERVAL_SECONDS)
+
+
+# ── Public read API (consumed by api_rss router) ─────────────────────────────
+def get_signals(
+    country: Optional[str] = None,
+    category: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = 100,
+) -> Dict[str, Any]:
+    limit = max(1, min(MAX_ITEMS, int(limit)))
+    with _lock:
+        items = list(_signals.values())
+        total = len(items)
+        last = _last_fetch.isoformat() if _last_fetch else None
+        source_count = sum(1 for s in _sources.values() if s.get("status") == "ok")
+    if country:
+        cl = country.lower()
+        items = [s for s in items if (s.country or "").lower() == cl]
+    if category:
+        items = [s for s in items if s.category == category]
+    if severity:
+        items = [s for s in items if s.severity == severity]
+    items.sort(key=lambda s: s.published, reverse=True)
+    items = items[:limit]
+    return {
+        "signals": [s.model_dump(mode="json") for s in items],
+        "last_fetch": last,
+        "source_count": source_count,
+        "total_count": total,
+    }
+
+
+def get_sources() -> Dict[str, Any]:
+    with _lock:
+        # Include feeds that haven't reported yet (first cycle still running).
+        known = dict(_sources)
+    rows = []
+    for name, url in _FEEDS:
+        row = known.get(name) or {
+            "name": name, "url": url, "status": "pending",
+            "last_fetch": None, "item_count": 0,
+        }
+        rows.append(row)
+    return {"sources": rows}
+
+
+def get_stats() -> Dict[str, Any]:
+    with _lock:
+        items = list(_signals.values())
+    by_country: Dict[str, int] = {}
+    by_category: Dict[str, int] = {}
+    by_severity: Dict[str, int] = {}
+    for s in items:
+        if s.country:
+            by_country[s.country] = by_country.get(s.country, 0) + 1
+        by_category[s.category] = by_category.get(s.category, 0) + 1
+        by_severity[s.severity] = by_severity.get(s.severity, 0) + 1
+    return {
+        "total_signals": len(items),
+        "by_country": dict(sorted(by_country.items(), key=lambda kv: kv[1], reverse=True)),
+        "by_category": by_category,
+        "by_severity": by_severity,
+    }
