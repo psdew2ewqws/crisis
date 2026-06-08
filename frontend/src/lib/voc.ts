@@ -674,6 +674,30 @@ export interface AbmTimelineEvent {
 export interface AbmArchPoint {
   step: number; citizen: number; service_quality: number; media_awareness: number
 }
+export interface AbmImpactStep {
+  t: string
+  label_ar: string
+  phase: 'impact' | 'response' | 'relief' | 'recovery' | string
+  affected: number
+  casualties: number
+  injured: number
+  displaced: number
+  hospital_load_pct: number
+  infrastructure: string
+  narrative_ar: string
+  by_gov: { gov: string; name_ar: string; affected: number; displaced: number }[]
+}
+export interface AbmImpactTimeline {
+  engine: 'llm' | 'deterministic'
+  domain: string
+  intervene: boolean
+  exposed_population: number
+  affected_governorates: string[]
+  intensity: number
+  steps: AbmImpactStep[]
+  totals: { affected: number; casualties: number; injured: number; displaced: number }
+  method_note_ar: string
+}
 export interface AbmReportDoc {
   ok: boolean
   type?: 'crisis' | 'solution'
@@ -684,7 +708,8 @@ export interface AbmReportDoc {
 }
 export interface AbmEvent {
   stage: 'intake' | 'seed_society' | 'research_intake' | 'calibrate' | 'simulate_problem'
-    | 'simulate_solution' | 'compare' | 'reports' | 'synthesize' | 'error' | 'done'
+    | 'simulate_solution' | 'compare' | 'impact_crisis' | 'impact_solution'
+    | 'reports' | 'synthesize' | 'error' | 'done'
   status?: string
   detail?: string
   // intake
@@ -711,6 +736,8 @@ export interface AbmEvent {
   insights?: AbmResearchInsights
   query?: string
   shock_used?: number
+  // impact timeline stages
+  timeline?: AbmImpactTimeline
   // reports stage
   crisis_report?: AbmReportDoc
   solution_report?: AbmReportDoc

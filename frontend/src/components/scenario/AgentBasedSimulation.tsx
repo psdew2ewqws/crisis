@@ -14,17 +14,20 @@ import {
 import {
   streamAbm, getScenarioOptions,
   type AbmEvent, type AbmAgentPopulations, type AbmCalibration, type AbmResearchInsights,
-  type AbmReportDoc, type AbmTimelineEvent, type ScenarioOption, type ScenarioEvent, type ScenarioEvidence,
+  type AbmReportDoc, type AbmTimelineEvent, type AbmImpactTimeline,
+  type ScenarioOption, type ScenarioEvent, type ScenarioEvidence,
 } from '../../lib/voc'
 import ScenarioCharts from './ScenarioCharts'
 import EvidencePanel from './EvidencePanel'
+import ImpactTimeline from './ImpactTimeline'
 
 const STAGES: { key: AbmEvent['stage']; label: string }[] = [
   { key: 'seed_society',     label: 'بناء المجتمع' },
   { key: 'research_intake',  label: 'استرجاع الأدلة' },
   { key: 'calibrate',        label: 'المعايرة' },
   { key: 'simulate_problem', label: 'محاكاة الأزمة' },
-  { key: 'simulate_solution', label: 'محاكاة الحلّ' },
+  { key: 'impact_crisis',    label: 'أثر الأزمة' },
+  { key: 'impact_solution',  label: 'أثر الحلّ' },
   { key: 'reports',          label: 'التقارير' },
   { key: 'synthesize',       label: 'الخلاصة' },
 ]
@@ -61,6 +64,8 @@ export default function AgentBasedSimulation() {
   const [crisisReport, setCrisisReport] = useState<AbmReportDoc | null>(null)
   const [solutionReport, setSolutionReport] = useState<AbmReportDoc | null>(null)
   const [openReport, setOpenReport] = useState<'crisis' | 'solution' | null>(null)
+  const [crisisImpact, setCrisisImpact] = useState<AbmImpactTimeline | null>(null)
+  const [solutionImpact, setSolutionImpact] = useState<AbmImpactTimeline | null>(null)
   const [synthesis, setSynthesis] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -69,6 +74,7 @@ export default function AgentBasedSimulation() {
     setDone(new Set()); setPops(null); setEngineNotes(null); setCalib(null)
     setSim(null); setTimeline([]); setResearch(null); setPapers([])
     setCrisisReport(null); setSolutionReport(null); setOpenReport(null)
+    setCrisisImpact(null); setSolutionImpact(null)
     setSynthesis(null); setError(null)
   }, [])
 
@@ -95,6 +101,12 @@ export default function AgentBasedSimulation() {
           setResearch(e.insights ?? null)
           setPapers((e.papers ?? []) as ScenarioEvidence[])
         }
+        break
+      case 'impact_crisis':
+        if (e.status === 'done') setCrisisImpact(e.timeline ?? null)
+        break
+      case 'impact_solution':
+        if (e.status === 'done') setSolutionImpact(e.timeline ?? null)
         break
       case 'reports':
         if (e.status === 'done') {
@@ -296,6 +308,19 @@ export default function AgentBasedSimulation() {
           </div>
           <ScenarioCharts sim={sim as unknown as ScenarioEvent} />
         </motion.div>
+      )}
+
+      {/* Concrete step-by-step impact simulation — what ACTUALLY happens */}
+      {(crisisImpact || solutionImpact) && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-txt" dir="auto">
+            <Activity className="h-4 w-4 text-danger" /> المحاكاة الفعلية للأثر — ماذا يحدث خطوة بخطوة
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {crisisImpact && <ImpactTimeline timeline={crisisImpact} accent="crisis" />}
+            {solutionImpact && <ImpactTimeline timeline={solutionImpact} accent="solution" />}
+          </div>
+        </div>
       )}
 
       {/* Two-report panel: crisis + solution */}

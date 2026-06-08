@@ -30,6 +30,11 @@ from pydantic import BaseModel
 from . import abm_sim, abm_calibrate, mesa_sim
 
 try:
+    from . import abm_impact
+except Exception:  # pragma: no cover
+    abm_impact = None  # type: ignore
+
+try:
     from . import research_agent as _research
 except Exception:  # pragma: no cover
     _research = None  # type: ignore
@@ -438,6 +443,38 @@ def run_abm_flow(body: ABMScenarioIn) -> Iterator[bytes]:
               risk_reduction=sim.get("risk_reduction"),
               intervention_timeline=sim.get("intervention_timeline"),
               lags=sim.get("lags"))
+
+    # ── concrete impact timelines: what ACTUALLY happens, step by step ──
+    crisis_impact: Dict[str, Any] = {}
+    solution_impact: Dict[str, Any] = {}
+    if abm_impact is not None:
+        ivs = research_insights.get("interventions", [])
+        intensity = float(sim.get("risk_before", 60)) / 100.0
+        eff = float((calib or {}).get("effect_size", 0.6))
+        lags = sim.get("lags") or {}
+        # Crisis (no intervention)
+        yield _ev("impact_crisis", status="running",
+                  detail="محاكاة الأثر الفعلي للأزمة خطوة بخطوة")
+        try:
+            crisis_impact = abm_impact.simulate_impact(
+                text, domain=domain, location=body.location, intensity=intensity,
+                effect_size=eff, intervene=False, lags=lags, papers=all_papers)
+        except Exception:
+            crisis_impact = {}
+        yield _ev("impact_crisis", status="done",
+                  detail="اكتملت محاكاة أثر الأزمة", timeline=crisis_impact)
+        # Solution (intervention applied)
+        yield _ev("impact_solution", status="running",
+                  detail="محاكاة أثر التدخّل والحلّ خطوة بخطوة")
+        try:
+            solution_impact = abm_impact.simulate_impact(
+                text, domain=domain, location=body.location, intensity=intensity,
+                effect_size=eff, intervene=True, lags=lags, papers=all_papers,
+                interventions=ivs)
+        except Exception:
+            solution_impact = {}
+        yield _ev("impact_solution", status="done",
+                  detail="اكتملت محاكاة أثر الحلّ", timeline=solution_impact)
 
     # ── generate both reports ──
     yield _ev("reports", status="running", detail="إعداد تقرير الأزمة وتقرير الحلول")
