@@ -637,6 +637,102 @@ export async function streamScenario(
   }
 }
 
+// ── Agent-based simulation (the "Agent-Based" tab) ──────────────────────────
+export interface AbmAgentPopulations {
+  citizens: number; services: number; operators: number; media: number; citizen_pop_total: number
+}
+export interface AbmCalibration {
+  available: boolean
+  source: 'data' | 'dowhy' | 'prior'
+  effect_size: number
+  spread_rate: number
+  decay: number
+  n_rows: number
+  n_services: number
+  confidence: 'high' | 'medium' | 'low'
+  refutation: { available: boolean; robust?: boolean; spurious?: boolean; effect?: number }
+  notes_ar: string
+}
+export interface AbmTimelineEvent {
+  tick: number; event: string; targets?: string[]; effect_size?: number; obs?: number
+}
+export interface AbmArchPoint {
+  step: number; citizen: number; service_quality: number; media_awareness: number
+}
+export interface AbmEvent {
+  stage: 'intake' | 'seed_society' | 'calibrate' | 'simulate_problem'
+    | 'simulate_solution' | 'compare' | 'evidence' | 'synthesize' | 'error' | 'done'
+  status?: string
+  detail?: string
+  // intake
+  case?: string | null; domain?: string | null; steps?: number; seed?: number
+  // seed_society
+  agent_populations?: AbmAgentPopulations
+  n_nodes?: number
+  engine_notes?: { mesa: boolean; langgraph: boolean; dowhy: boolean }
+  // calibrate
+  calibration?: AbmCalibration
+  // simulate_problem (problem-only slice)
+  series?: ScenarioSeriesPoint[]; seir?: ScenarioSeir; risk?: number; per_archetype?: AbmArchPoint[]
+  // simulate_solution — full sim payload (same shape ScenarioCharts reads)
+  available?: boolean; engine?: string
+  risk_before?: number; risk_after?: number; risk_reduction?: number
+  intervention_strength?: number; intervention_node?: string | null
+  seir_before?: ScenarioSeir; seir_after?: ScenarioSeir; escalation?: ScenarioEscalation
+  series_before?: ScenarioSeriesPoint[]; series_after?: ScenarioSeriesPoint[]
+  per_archetype_series?: { problem: AbmArchPoint[]; solution: AbmArchPoint[] }
+  intervention_timeline?: AbmTimelineEvent[]
+  lags?: { detection_lag: number; decision_lag: number; ramp_ticks: number }
+  // evidence (scholarly references via OpenAlex open-access)
+  items?: ScenarioEvidence[]
+  count?: number
+  abstained?: boolean
+  query?: string
+  // synthesize
+  synthesis?: string
+  // done
+  aborted?: boolean
+}
+export interface AbmInput {
+  text: string; domain?: string; location?: string; service?: string
+  case_hint?: string; steps?: number; seed?: number; shock?: number
+}
+
+// Streams POST /api/abm/simulate, invoking onEvent per NDJSON line.
+export async function streamAbm(
+  body: AbmInput,
+  onEvent: (e: AbmEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/api/abm/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!res.body) return
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += dec.decode(value, { stream: true })
+    let i: number
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim()
+      buf = buf.slice(i + 1)
+      if (line) {
+        try {
+          onEvent(JSON.parse(line) as AbmEvent)
+        } catch {
+          /* ignore partial / malformed line */
+        }
+      }
+    }
+  }
+}
+
 // Approval-gated write-back of an acted-on scenario into the lessons RAG.
 export interface ScenarioRetainInput {
   text: string

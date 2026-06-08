@@ -100,6 +100,13 @@ try:
 except Exception:
     pass
 
+# Agent-based crisis simulation (true ABM): POST /api/abm/simulate (NDJSON stream)
+try:
+    from . import abm_flow
+    app.include_router(abm_flow.router)
+except Exception:
+    pass
+
 # Legal research agent (open scholarly + data APIs): POST /api/research/run (NDJSON)
 try:
     from . import research_agent
