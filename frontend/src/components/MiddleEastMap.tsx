@@ -1,6 +1,7 @@
 import 'leaflet/dist/leaflet.css'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, GeoJSON, CircleMarker, Popup } from 'react-leaflet'
+import * as L from 'leaflet'
 import type { Map as LeafletMap, CircleMarker as LeafletCircleMarker, PathOptions } from 'leaflet'
 import type { Feature } from 'geojson'
 import { Radio, ExternalLink, Loader2 } from 'lucide-react'
@@ -17,16 +18,25 @@ const ZOOM = 4
 const MAX_BOUNDS: [[number, number], [number, number]] = [[12, 24], [42, 62]]
 const POLL_MS = 20000
 
-// ── Country style: bright when live data present, dim otherwise ──────────────
-function makeCountryStyle(countriesWithData: Set<string>) {
+// ── Country signal count (used for intensity scaling) ────────────────────────
+// Colors per signal-count tier: no data → dim | 1-5 → teal | 6-20 → blue | 21+ → amber
+function tierColor(n: number): { fill: string; stroke: string } {
+  if (n === 0) return { fill: '#131820', stroke: '#1e2a3a' }
+  if (n <= 5)  return { fill: '#0e3040', stroke: '#0ea5e9' }   // teal-low
+  if (n <= 20) return { fill: '#1a3a6e', stroke: '#3b82f6' }   // blue-mid
+  return       { fill: '#3d2206', stroke: '#f97316' }           // amber-high (many signals)
+}
+
+function makeCountryStyle(signalsByCountry: Map<string, number>) {
   return (feature?: Feature): PathOptions => {
     const name: string = (feature?.properties as { name?: string } | null)?.name ?? ''
-    const hasData = countriesWithData.has(name)
+    const n = signalsByCountry.get(name) ?? 0
+    const { fill, stroke } = tierColor(n)
     return {
-      fillColor:   hasData ? '#1e3a5f' : '#0d1117',
-      fillOpacity: hasData ? 0.85 : 0.45,
-      color:       hasData ? '#3b82f6' : '#1c2333',
-      weight:      hasData ? 1.2 : 0.5,
+      fillColor:   fill,
+      fillOpacity: n > 0 ? 0.90 : 0.60,
+      color:       stroke,
+      weight:      n > 0 ? 1.5 : 0.6,
     }
   }
 }
@@ -242,15 +252,29 @@ export default function MiddleEastMap() {
   )
   const feed = useMemo(() => filtered.slice(0, 20), [filtered])
 
-  // Countries that have at least one live signal — used to light up polygons.
-  const countriesWithData = useMemo<Set<string>>(
-    () => new Set(signals.map(s => s.country).filter(Boolean) as string[]),
-    [signals],
-  )
+  // Signal count per country — drives polygon color intensity.
+  const signalsByCountry = useMemo<Map<string, number>>(() => {
+    const m = new Map<string, number>()
+    for (const s of signals) {
+      if (s.country) m.set(s.country, (m.get(s.country) ?? 0) + 1)
+    }
+    return m
+  }, [signals])
+
   const countryStyle = useCallback(
-    (feature?: Feature) => makeCountryStyle(countriesWithData)(feature),
-    [countriesWithData],
+    (feature?: Feature) => makeCountryStyle(signalsByCountry)(feature),
+    [signalsByCountry],
   )
+
+  // Add country name tooltip on hover.
+  const onEachFeature = useCallback((feature: Feature, layer: L.Layer) => {
+    const name: string = (feature?.properties as { name?: string } | null)?.name ?? ''
+    const n = signalsByCountry.get(name) ?? 0
+    const label = n > 0 ? `${name} · ${n} signals` : name
+    layer.bindTooltip(label, {
+      permanent: false, direction: 'center', className: 'aegis-country-tip',
+    })
+  }, [signalsByCountry])
 
   const toggleCat = (c: RssCategory) =>
     setCatOn(prev => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n })
@@ -287,21 +311,24 @@ export default function MiddleEastMap() {
         .aegis-popup-summary { margin-top:6px; font-size:11px; line-height:1.5; color:#8B8D96; }
         .aegis-sim-btn { display:block; width:100%; margin-top:8px; padding:5px 10px; background:#3b82f620; border:1px solid #3b82f660; border-radius:6px; color:#60a5fa; font-size:11.5px; cursor:pointer; text-align:center; font-weight:600; }
         .aegis-sim-btn:hover { background:#3b82f640; }
+        .aegis-country-tip { background:#0d1117dd !important; border:1px solid #3b82f660 !important; color:#93c5fd !important; font-size:11px !important; font-weight:600 !important; padding:3px 8px !important; border-radius:4px !important; white-space:nowrap; }
+        .aegis-country-tip::before { display:none !important; }
+        .leaflet-container { font-family: system-ui, sans-serif; }
       `}</style>
 
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <div className="flex items-center gap-2 text-[13px] font-semibold text-txt">
-          Middle East — Live Crisis Signals
+          الشرق الأوسط — إشارات الأزمات المباشرة
           <span className="flex items-center gap-1 rounded-full border border-blue/40 bg-blue/10 px-2 py-0.5 text-[10px] font-medium text-blue">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue" />
-            {located.length} signals
+            {signals.length} إشارة · {signalsByCountry.size} دولة
           </span>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-faint">
           <span className="flex items-center gap-1">
-            <Radio className="h-3 w-3" /> {sourceCount} feeds
+            <Radio className="h-3 w-3" /> {sourceCount} مصدر
           </span>
-          <span className="font-mono">Updated {secsAgo}s ago</span>
+          <span className="font-mono">{secsAgo}s ago</span>
         </div>
       </div>
 
@@ -320,11 +347,12 @@ export default function MiddleEastMap() {
             ref={(m) => { if (m) mapRef.current = m }}
             attributionControl={false}
           >
-            {/* Data-only country polygons — no tile layer */}
+            {/* Data-only country polygons — signal-intensity coloring */}
             <GeoJSON
               data={meGeoJSON}
               style={countryStyle}
-              key={countriesWithData.size}
+              onEachFeature={onEachFeature}
+              key={signalsByCountry.size}
             />
             {located.map(sig => (
               <SignalMarker key={sig.id} sig={sig} selected={selectedId === sig.id} onSelect={onSelect} />
@@ -405,18 +433,27 @@ export default function MiddleEastMap() {
         </div>
       </div>
 
-      <div className="border-t border-border px-4 py-2 flex items-center justify-between font-mono text-[10px] text-faint">
-        <div className="flex items-center gap-3">
+      <div className="border-t border-border px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] text-faint">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* signal-intensity legend */}
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-2 rounded-full" style={{ background: '#a855f7' }} />
-            حالات تاريخية موثّقة ({caseStudies.length})
+            <span className="inline-block h-2.5 w-2.5 rounded-sm border" style={{ background: '#0e3040', borderColor: '#0ea5e9' }} />
+            1–5 إشارات
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-2 rounded-full bg-blue" />
-            أحداث مباشرة ({located.length})
+            <span className="inline-block h-2.5 w-2.5 rounded-sm border" style={{ background: '#1a3a6e', borderColor: '#3b82f6' }} />
+            6–20 إشارة
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm border" style={{ background: '#3d2206', borderColor: '#f97316' }} />
+            +21 إشارة
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#a855f7' }} />
+            حالات تاريخية ({caseStudies.length})
           </span>
         </div>
-        <span>live RSS · {lastFetch ? `last fetch ${relTime(lastFetch)}` : 'awaiting first fetch'} · Natural Earth</span>
+        <span className="font-mono">live RSS · {lastFetch ? relTime(lastFetch) : 'جارٍ التحميل…'} · Natural Earth</span>
       </div>
     </div>
   )
