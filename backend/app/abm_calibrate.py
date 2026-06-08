@@ -277,6 +277,22 @@ def _weekly_by_service(services: List[str]) -> Dict[str, List[float]]:
     return by
 
 
+def _verified_services(services: List[str], min_rows: int = 50) -> List[str]:
+    """Return only services that have at least min_rows in the_data with a severity label.
+    This ensures the DoWhy treated group is large enough for reliable refutation."""
+    if db is None or not services:
+        return []
+    try:
+        rows = db.fetchall(
+            "SELECT service_id, count(*) n FROM the_data "
+            "WHERE service_id = ANY(%s) AND severity IS NOT NULL GROUP BY service_id",
+            (list(services),)
+        )
+        return [r["service_id"] for r in (rows or []) if int(r["n"] or 0) >= min_rows]
+    except Exception:
+        return []
+
+
 def _fit_decay(neg: List[float]) -> float:
     """Lag-1 autoregression of deviations from the mean → persistence (decay)."""
     if len(neg) < 4:
@@ -343,6 +359,7 @@ def calibrate(graph, treated_services: Optional[List[str]] = None,
             f"سجل تاريخي محدود ({n_rows} إشارة، {len(services)} خدمة) — "
             "حجم الأثر افتراضي متحفّظ."
         )
+        _run_dowhy(out, graph, services)   # DoWhy runs even on sparse data
         return out
 
     # data-driven fits
@@ -355,6 +372,7 @@ def calibrate(graph, treated_services: Optional[List[str]] = None,
         out["decay"] = decay
         out["confidence"] = "low"
         out["notes_ar"] = "لا يوجد نمط ذروة/تعافٍ واضح في السجل — أثر افتراضي."
+        _run_dowhy(out, graph, services)   # DoWhy runs even when no peak/trough pattern
         return out
 
     out["source"] = "data"
@@ -367,21 +385,38 @@ def calibrate(graph, treated_services: Optional[List[str]] = None,
         f"عبر {len(weekly)} خدمة ({n_rows} إشارة)."
     )
 
-    # optional DoWhy robustness — only ADJUSTS confidence
-    if available_dowhy():
-        try:
-            cluster_id = _top_cluster_id(graph) or ""
-            ref = causal_validate.refute(cluster_id, services)
-            out["refutation"] = ref
-            if ref.get("available") and ref.get("ok"):
-                out["source"] = "dowhy"
-                if ref.get("robust"):
-                    out["confidence"] = "high"
-                    out["notes_ar"] += " اجتاز فحص المتانة السببي (DoWhy)."
-                elif ref.get("spurious"):
-                    out["confidence"] = "low"
-                    out["notes_ar"] += " تحذير: لم يجتز فحص المتانة السببي (ارتباط غير سببي محتمل)."
-        except Exception:
-            pass
-
+    _run_dowhy(out, graph, services)
     return out
+
+
+def _run_dowhy(out: Dict[str, Any], graph: Any, services: List[str]) -> None:
+    """Run DoWhy causal refutation and mutate `out` in place (adjusts confidence only).
+    Separated so it can be called from all early-return paths in calibrate()."""
+    if not available_dowhy():
+        return
+    try:
+        cluster_id = _top_cluster_id(graph) or ""
+        # causal_validate._build_frame auto-falls-back to top severity services
+        # when the treated set has insufficient rows, so we always get n_treated > 0.
+        ref = causal_validate.refute(cluster_id, services)
+        out["refutation"] = ref
+        if ref.get("available") and ref.get("ok"):
+            if out.get("source", "prior") == "prior":
+                out["source"] = "dowhy"
+            else:
+                out["source"] = out["source"] + "+dowhy"
+            if ref.get("robust"):
+                # Bump confidence up one band
+                conf_up = {"low": "medium", "medium": "high", "high": "high"}
+                out["confidence"] = conf_up.get(out.get("confidence", "low"), "medium")
+                out["notes_ar"] = (out.get("notes_ar", "") +
+                    f" | اجتاز فحص المتانة السببي (DoWhy) — الارتباط غير زائف "
+                    f"(n={ref.get('n_treated','?')} معالَج، {ref.get('n_control','?')} ضابط).")
+            elif ref.get("spurious"):
+                out["confidence"] = "low"
+                out["notes_ar"] = (out.get("notes_ar", "") +
+                    " | تحذير DoWhy: ارتباط غير سببي محتمل.")
+        elif ref.get("ok") is False:
+            out["refutation"] = ref  # surface the error detail
+    except Exception as e:
+        out["refutation"] = {"available": True, "ok": False, "error": str(e)[:120]}

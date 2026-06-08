@@ -16,7 +16,7 @@ mesa==3.1.1
 # agent-based sim calibration (data-driven fit; always-on)
 pandas>=2.0
 scipy>=1.10
-# optional — DoWhy causal robustness layer for the ABM (gated by VALIDATE_CAUSAL=1)
-# dowhy==0.11
+# DoWhy causal robustness layer — active when VALIDATE_CAUSAL=1 in .env
+dowhy>=0.14
 
 pinecone>=5.0

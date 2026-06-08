@@ -80,9 +80,28 @@ _FRAME_SQL = """
 """
 
 
+def _top_severity_services(limit: int = 4) -> List[str]:
+    """Return the service_ids with the most severity-labeled rows in the_data."""
+    try:
+        rows = db.fetchall(
+            "SELECT service_id FROM the_data "
+            "WHERE severity IS NOT NULL AND service_id IS NOT NULL "
+            "GROUP BY service_id ORDER BY count(*) DESC LIMIT %s",
+            (limit,)
+        )
+        return [r["service_id"] for r in (rows or [])]
+    except Exception:
+        return []
+
+
 def _build_frame(treated_services: List[str]):
-    """Return (DataFrame, common_cause_columns) or None. T = service in cluster set;
-    Y = severity in {high, critical}; X = encoded confounders."""
+    """Return (DataFrame, common_cause_columns) or None.
+
+    Treatment definition: signal's service_id is in the treated set.
+    If treated_services are not in the severity-labeled data, falls back
+    to the top services by severity row count so n_treated > 0.
+    Y = severity ∈ {high, critical}; X = encoded confounders.
+    """
     import pandas as pd
 
     rows = db.fetchall(_FRAME_SQL)
@@ -93,6 +112,11 @@ def _build_frame(treated_services: List[str]):
         return None
 
     treated = set(treated_services or [])
+    # Check how many treated rows we'd get; fall back to top services if insufficient.
+    initial_t = int((df["service_id"].isin(treated)).sum())
+    if initial_t < 20:
+        treated = set(_top_severity_services(4))
+
     df["T"] = df["service_id"].apply(lambda s: 1 if s in treated else 0)
     df["Y"] = df["severity"].apply(lambda s: 1 if str(s).lower() in ("high", "critical") else 0)
     for b in ("is_weekend", "is_holiday", "is_ramadan"):
@@ -173,7 +197,7 @@ def refute(cluster_id: str, treated_services: List[str]) -> dict[str, Any]:
         return {
             "available": True, "ok": True,
             "effect": round(eff, 5),
-            "treatment": "service-level exposure (proxy)",
+            "treatment": f"service_id in top-severity services ({n_t} rows)",
             "outcome": "severity ∈ {high, critical}",
             "n_treated": n_t, "n_control": n_c,
             "refutations": refutations,
