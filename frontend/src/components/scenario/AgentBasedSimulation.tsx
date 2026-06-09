@@ -9,8 +9,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   Play, RotateCcw, Loader2, MapPin, Wrench, Users, Building2, Megaphone,
-  ShieldAlert, FlaskConical, Clock, Activity, FileText, AlertTriangle, BarChart3,
+  ShieldAlert, FlaskConical, Clock, Activity, FileText, AlertTriangle, BarChart3, Download,
 } from 'lucide-react'
+import { downloadElementsAsPdf } from '../../lib/pdf'
 import {
   streamAbm, getScenarioOptions,
   type AbmEvent, type AbmAgentPopulations, type AbmCalibration, type AbmResearchInsights,
@@ -80,6 +81,38 @@ function Placeholder({ label }: { label: string }) {
   )
 }
 
+const ACCENT: Record<string, { bar: string; text: string }> = {
+  danger: { bar: 'bg-danger', text: 'text-danger' },
+  good:   { bar: 'bg-good',   text: 'text-good' },
+  blue:   { bar: 'bg-blue',   text: 'text-blue' },
+}
+
+function SectionHeader({ icon: Icon, accent, ar, en, onPdf, pdfBusy, canPdf }: {
+  icon: typeof FileText; accent: 'danger' | 'good' | 'blue'; ar: string; en: string
+  onPdf?: () => void; pdfBusy?: boolean; canPdf?: boolean
+}) {
+  const a = ACCENT[accent]
+  return (
+    <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2.5">
+        <span className={`h-7 w-1 rounded-full ${a.bar}`} />
+        <Icon className={`h-5 w-5 ${a.text}`} />
+        <div>
+          <div className="text-[16px] font-bold text-txt" dir="auto">{ar}</div>
+          <div className="text-[10px] uppercase tracking-wide text-faint">{en}</div>
+        </div>
+      </div>
+      {onPdf && (
+        <button type="button" onClick={onPdf} disabled={!canPdf || pdfBusy}
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-[12px] font-medium text-muted transition-colors hover:bg-cardhi hover:text-txt disabled:opacity-40">
+          {pdfBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          <span dir="auto">{pdfBusy ? 'جارٍ التصدير…' : 'تصدير PDF'}</span>
+        </button>
+      )}
+    </div>
+  )
+}
+
 const CONF_AR: Record<string, string> = { high: 'مرتفعة', medium: 'متوسطة', low: 'منخفضة' }
 const SRC_AR: Record<string, string> = {
   data: 'من البيانات التاريخية', dowhy: 'من البيانات + فحص سببي', prior: 'قيمة افتراضية',
@@ -115,9 +148,22 @@ export default function AgentBasedSimulation() {
   const [crisisImpact, setCrisisImpact] = useState<AbmImpactTimeline | null>(null)
   const [solutionImpact, setSolutionImpact] = useState<AbmImpactTimeline | null>(null)
   const [synthesis, setSynthesis] = useState<string | null>(null)
-  const [tab, setTab] = useState<'report' | 'solution' | 'compare'>('report')
+  const [pdfBusy, setPdfBusy] = useState<'crisis' | 'solution' | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const autoRunRef = useRef(false)
+  const crisisRef = useRef<HTMLDivElement>(null)
+  const solutionRef = useRef<HTMLDivElement>(null)
+
+  const exportPdf = useCallback(async (which: 'crisis' | 'solution') => {
+    const el = which === 'crisis' ? crisisRef.current : solutionRef.current
+    if (!el) return
+    setPdfBusy(which)
+    try {
+      await downloadElementsAsPdf([el],
+        which === 'crisis' ? 'تقرير-محاكاة-الأزمة.pdf' : 'تقرير-محاكاة-الحلول.pdf',
+        '#0A0A0B')
+    } catch { /* ignore */ } finally { setPdfBusy(null) }
+  }, [])
 
   // Read sessionStorage prefill written by map "Simulate" buttons (RSS + case studies).
   // Must run after locations dropdown loads so the location value is accepted.
@@ -146,7 +192,7 @@ export default function AgentBasedSimulation() {
     abortRef.current?.abort()
     setDone(new Set()); setPops(null); setEngineNotes(null); setCalib(null)
     setSim(null); setTimeline([]); setResearch(null); setPapers([]); setCaseStudies([])
-    setCrisisReport(null); setSolutionReport(null); setTab('report')
+    setCrisisReport(null); setSolutionReport(null); setPdfBusy(null)
     setCrisisImpact(null); setSolutionImpact(null)
     setSynthesis(null); setError(null)
   }, [])
@@ -297,29 +343,13 @@ export default function AgentBasedSimulation() {
         </div>
       )}
 
-      {/* ── result tabs ─────────────────────────────────────────────── */}
+      {/* ══ SECTION 1 — Crisis Simulation Report ════════════════════════ */}
       {hasResults && (
-        <div className="flex items-center gap-1 border-b border-border">
-          {([
-            { key: 'report' as const,   icon: AlertTriangle, ar: 'تقرير المحاكاة',  en: 'Simulation Report' },
-            { key: 'solution' as const, icon: FileText,      ar: 'تقرير الحلول',    en: 'Solution Report' },
-            { key: 'compare' as const,  icon: BarChart3,     ar: 'لوحة المقارنة',   en: 'Comparison' },
-          ]).map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={`relative flex items-center gap-1.5 px-4 py-2.5 text-[13px] transition-colors ${
-                tab === t.key ? 'font-semibold text-txt' : 'text-muted hover:text-txt'
-              }`}>
-              <t.icon className="h-3.5 w-3.5" />
-              <span dir="auto">{t.ar}</span>
-              {tab === t.key && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded bg-blue" />}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── TAB 1: Simulation Report ─────────────────────────────────── */}
-      {hasResults && tab === 'report' && (
-        <div className="space-y-5">
+        <section className="border-t border-border pt-5">
+          <SectionHeader icon={AlertTriangle} accent="danger"
+            ar="تقرير محاكاة الأزمة" en="Crisis Simulation Report"
+            onPdf={() => exportPdf('crisis')} pdfBusy={pdfBusy === 'crisis'} canPdf={!!crisisReport} />
+          <div ref={crisisRef} className="space-y-5 bg-bg">
           {crisisReport
             ? <ReportBlock doc={crisisReport} accent="danger" />
             : running && <Placeholder label="يُعِدّ تقرير المحاكاة…" />}
@@ -383,12 +413,17 @@ export default function AgentBasedSimulation() {
 
           {/* crisis impact timeline (what happens with no intervention) */}
           {crisisImpact && <ImpactTimeline timeline={crisisImpact} accent="crisis" />}
-        </div>
+          </div>
+        </section>
       )}
 
-      {/* ── TAB 2: Solution Report ───────────────────────────────────── */}
-      {hasResults && tab === 'solution' && (
-        <div className="space-y-5">
+      {/* ══ SECTION 2 — Solution Simulation Report ══════════════════════ */}
+      {hasResults && (
+        <section className="border-t border-border pt-5">
+          <SectionHeader icon={FileText} accent="good"
+            ar="تقرير محاكاة الحلول" en="Solution Simulation Report"
+            onPdf={() => exportPdf('solution')} pdfBusy={pdfBusy === 'solution'} canPdf={!!solutionReport} />
+          <div ref={solutionRef} className="space-y-5 bg-bg">
           {solutionReport
             ? <ReportBlock doc={solutionReport} accent="good" />
             : running && <Placeholder label="يُعِدّ تقرير الحلول…" />}
@@ -469,14 +504,19 @@ export default function AgentBasedSimulation() {
 
           {/* solution impact timeline (what happens with intervention) */}
           {solutionImpact && <ImpactTimeline timeline={solutionImpact} accent="solution" />}
-        </div>
+          </div>
+        </section>
       )}
 
-      {/* ── TAB 3: Comparison Dashboard ──────────────────────────────── */}
-      {hasResults && tab === 'compare' && (
-        sim
-          ? <ComparisonDashboard sim={sim} crisisImpact={crisisImpact} solutionImpact={solutionImpact} synthesis={synthesis} />
-          : <Placeholder label="تُعِدّ لوحة المقارنة…" />
+      {/* ══ SECTION 3 — Before / After Dashboard ════════════════════════ */}
+      {hasResults && (
+        <section className="border-t border-border pt-5">
+          <SectionHeader icon={BarChart3} accent="blue"
+            ar="لوحة المقارنة — قبل وبعد التدخّل" en="Before / After Dashboard" />
+          {sim
+            ? <ComparisonDashboard sim={sim} crisisImpact={crisisImpact} solutionImpact={solutionImpact} synthesis={synthesis} />
+            : <Placeholder label="تُعِدّ لوحة المقارنة…" />}
+        </section>
       )}
     </div>
   )

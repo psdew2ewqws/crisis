@@ -58,6 +58,41 @@ _GOV_ALIASES = {
     "maan": "معان", "tafilah": "الطفيلة",
 }
 
+# Real Jordanian hospitals per governorate (major public + university + military).
+JORDAN_HOSPITALS: Dict[str, List[str]] = {
+    "عمان":    ["مدينة الحسين الطبية", "مستشفى البشير", "مستشفى الجامعة الأردنية", "مستشفى الأمير حمزة"],
+    "إربد":    ["مستشفى الملك المؤسس عبدالله الجامعي", "مستشفى الأميرة بسمة", "مستشفى إربد التخصصي"],
+    "الزرقاء": ["مستشفى الأمير فيصل", "مستشفى الزرقاء الحكومي", "مستشفى الأمير هاشم العسكري"],
+    "المفرق":  ["مستشفى المفرق الحكومي", "مستشفى الزعتري الميداني"],
+    "البلقاء": ["مستشفى السلط الحكومي", "مستشفى الأمير حمزة"],
+    "الكرك":   ["مستشفى الكرك الحكومي", "مستشفى الإيمان"],
+    "جرش":     ["مستشفى جرش الحكومي"],
+    "العقبة":  ["مستشفى الأمير هاشم", "مستشفى الأميرة هيا العسكري"],
+    "مادبا":   ["مستشفى مادبا الحكومي"],
+    "عجلون":   ["مستشفى عجلون الحكومي", "مستشفى الإيمان"],
+    "معان":    ["مستشفى معان الحكومي", "مستشفى الأمير زيد بن الحسين"],
+    "الطفيلة": ["مستشفى الطفيلة الحكومي"],
+}
+
+# Real Jordanian landmarks / infrastructure referenced in narratives, by domain.
+JORDAN_LANDMARKS: Dict[str, List[str]] = {
+    "earthquake": ["وسط البلد", "جبل عمّان", "مخيّم الوحدات", "الطريق الصحراوي", "جسر عبدون"],
+    "flood":      ["البحر الميت", "وادي الموجب", "السيل/وسط عمّان", "البتراء", "وادي رم"],
+    "water":      ["سد الوحدة", "سد الملك طلال", "محطة الزارة–ماعين", "ناقل الديسي", "شبكة مياهنا"],
+    "epidemic":   ["وزارة الصحة", "مراكز الرعاية الأولية", "مخيّم الزعتري", "مخيّم الأزرق"],
+    "energy":     ["شركة الكهرباء الوطنية", "محطة الحسين الحرارية", "مصفاة البترول الأردنية"],
+    "general":    ["مطار الملكة علياء الدولي", "الطريق الصحراوي", "مناطق التنمية"],
+}
+
+
+def _hospitals_for(govs: List[str], limit: int = 5) -> List[str]:
+    out: List[str] = []
+    for g in govs:
+        for h in JORDAN_HOSPITALS.get(g, []):
+            if h not in out:
+                out.append(h)
+    return out[:limit]
+
 
 def _resolve_govs(location: Optional[str]) -> List[str]:
     """Affected governorates: the chosen one (+ neighbours implicitly via national
@@ -197,18 +232,30 @@ def _deterministic_timeline(
     n = len(phases)
 
     def relief_at(idx: int) -> float:
-        """0..effect_size — how much the intervention has reduced impact by phase idx."""
+        """0..effect_size — how much the intervention has reduced impact by phase idx.
+
+        A PREPAREDNESS floor (30% of the effect) applies from the very first phase —
+        building codes, drills and pre-positioned response reduce even the acute toll —
+        while the remaining 70% (active operator response) ramps in after the
+        detection + decision + ramp lag. So the solution beats the crisis at the peak
+        too, not only in later phases."""
         if not intervene:
             return 0.0
-        # intervention effective fraction grows after (detect+decide) up the ramp
+        immediate = 0.30 * effect_size                      # preparedness, from t0
+        active = 0.70 * effect_size                          # operator response, lagged
         start = (detect + decide) / max(1, (detect + decide + ramp + 4))
         full = (detect + decide + ramp) / max(1, (detect + decide + ramp + 4))
         pos = idx / max(1, n - 1)
         if pos <= start:
-            return 0.0
-        if pos >= full:
-            return effect_size
-        return effect_size * (pos - start) / max(1e-6, (full - start))
+            ramped = 0.0
+        elif pos >= full:
+            ramped = active
+        else:
+            ramped = active * (pos - start) / max(1e-6, (full - start))
+        return min(effect_size, immediate + ramped)
+
+    hospitals = _hospitals_for(govs)
+    landmarks = JORDAN_LANDMARKS.get(dom, JORDAN_LANDMARKS["general"])
 
     steps: List[Dict[str, Any]] = []
     peak_affected = exposed * ratios["affected"] * I
@@ -237,7 +284,7 @@ def _deterministic_timeline(
             "displaced": displaced, "hospital_load_pct": hosp,
             "infrastructure": _infra_status(dom, m * (1.0 - 0.5 * relief)),
             "narrative_ar": _phase_narrative(dom, ph, affected, deaths, injured,
-                                             displaced, intervene, relief),
+                                             displaced, intervene, relief, hospitals, landmarks),
             "by_gov": by_gov[:6],
         })
 
@@ -252,37 +299,51 @@ def _deterministic_timeline(
         "domain": dom,
         "intervene": intervene,
         "exposed_population": exposed,
+        "national_population": _TOTAL_POP,
         "affected_governorates": [JORDAN_POP[g]["en"] for g in govs if g in JORDAN_POP],
+        "affected_governorates_ar": [g for g in govs if g in JORDAN_POP],
+        "hospitals": hospitals,
+        "landmarks": landmarks,
         "intensity": round(I, 3),
         "steps": steps,
         "totals": totals,
-        "method_note_ar": ("تقديرات استكشافية مبنية على عدد سكان المحافظات المتأثرة × شدّة "
-                           "الأزمة × نسب أثر من الأدبيات — لدعم القرار، وليست تنبؤًا مُعايرًا."),
+        "method_note_ar": ("تقديرات استكشافية مبنية على عدد سكان المحافظات المتأثرة في الأردن × "
+                           "شدّة الأزمة × نسب أثر من الأدبيات — لدعم القرار، وليست تنبؤًا مُعايرًا."),
     }
 
 
-def _phase_narrative(dom, ph, affected, deaths, injured, displaced, intervene, relief) -> str:
+def _phase_narrative(dom, ph, affected, deaths, injured, displaced, intervene, relief,
+                     hospitals=None, landmarks=None) -> str:
     a = f"{affected:,}".replace(",", "٬")
+    hosp = (hospitals or [])
+    h1 = hosp[0] if hosp else "المستشفيات الحكومية"
+    h2 = hosp[1] if len(hosp) > 1 else h1
+    lm = (landmarks or [])
+    place = lm[0] if lm else "المناطق المتأثّرة"
     base = ""
     if dom == "earthquake":
         if ph["phase"] == "impact":
-            base = (f"تتضرّر مبانٍ ويُحتجز سكان تحت الأنقاض؛ نحو {a} شخص متأثّر مباشرة، "
-                    f"مع {deaths:,} وفاة و{injured:,} إصابة أوّلية.")
+            base = (f"تتضرّر مبانٍ في {place} ويُحتجز سكان تحت الأنقاض؛ نحو {a} شخص متأثّر مباشرة، "
+                    f"مع {deaths:,} وفاة و{injured:,} إصابة أوّلية تتدفّق إلى {h1}.")
         elif ph["phase"] == "response":
-            base = (f"فرق البحث والإنقاذ تعمل؛ ترتفع الإصابات إلى {injured:,} ويُجلى "
-                    f"{displaced:,} شخص إلى مراكز إيواء.")
+            base = (f"فرق الدفاع المدني تعمل في البحث والإنقاذ؛ ترتفع الإصابات إلى {injured:,}، "
+                    f"ويتجاوز {h1} و{h2} طاقتهما الاستيعابية، ويُجلى {displaced:,} شخص إلى مراكز الإيواء.")
         elif ph["phase"] == "relief":
-            base = (f"تتركّز الجهود على الإيواء والمياه والرعاية؛ {displaced:,} نازح "
-                    f"بحاجة إلى مأوى، مع خطر هزّات ارتدادية.")
+            base = (f"تتركّز الجهود على الإيواء والمياه والرعاية؛ {displaced:,} نازح بحاجة إلى مأوى، "
+                    f"مع استمرار الضغط على {h1} وخطر هزّات ارتدادية.")
         else:
-            base = f"تبدأ إعادة التأهيل؛ يتناقص النازحون مع عودة الخدمات تدريجيًّا."
+            base = "تبدأ إعادة الإعمار؛ يتناقص النازحون وتعود خدمات المستشفيات تدريجيًّا."
     elif dom == "epidemic":
-        base = (f"عدد المصابين التراكمي نحو {a}، مع {deaths:,} وفاة وضغط متزايد "
-                f"على المستشفيات.")
+        base = (f"عدد المصابين التراكمي نحو {a}، مع {deaths:,} وفاة وضغط متزايد على "
+                f"{h1} وأقسام العناية الحثيثة.")
     elif dom == "flood":
-        base = (f"يتأثّر نحو {a} شخص، ويُجلى {displaced:,}؛ طرق وأحياء مغمورة.")
+        base = (f"يتأثّر نحو {a} شخص قرب {place}، ويُجلى {displaced:,}؛ طرق وأحياء مغمورة "
+                f"وتحويل المصابين إلى {h1}.")
+    elif dom == "water":
+        base = (f"ينقطع الماء عن نحو {a} شخص؛ ضغط على {h1} لحالات الجفاف والأمراض المنقولة بالمياه، "
+                f"واعتماد متزايد على مصادر مثل {place}.")
     else:
-        base = f"يتأثّر نحو {a} شخص بالأزمة في هذه المرحلة."
+        base = f"يتأثّر نحو {a} شخص بالأزمة في هذه المرحلة، مع ضغط على {h1}."
     if intervene and relief > 0.05:
         base += f" (التدخّل يخفّف الأثر بنحو {round(relief*100)}٪ في هذه المرحلة.)"
     return base
@@ -355,19 +416,28 @@ def _llm_timeline(text: str, base: Dict[str, Any], papers: List[Dict[str, Any]],
     role = "بعد تطبيق التدخّل والحلول" if intervene else "دون أيّ تدخّل"
     iv = f" التدخّلات المتاحة: {', '.join(interventions)}." if (intervene and interventions) else ""
 
+    hosp_names = "، ".join(base.get("hospitals", [])[:5]) or "المستشفيات الحكومية"
+    landmarks = "، ".join(base.get("landmarks", [])[:5])
+    govs_ar = "، ".join(base.get("affected_governorates_ar", []))
+    nat_pop = base.get("national_population", 0)
+
     sysmsg = (
         "أنت محاكي أزمات خبير بالأردن. اسرد ما يحدث فعليًّا في كل مرحلة بلغة عربية "
-        "واضحة ومحدّدة (من يتأثّر، ماذا يحدث على الأرض، حالة الخدمات والبنية التحتية), "
-        "مستندًا إلى الأرقام والأدلّة المعطاة دون اختلاق أرقام جديدة. "
+        "واضحة ومحدّدة (من يتأثّر، ماذا يحدث على الأرض، حالة الخدمات والبنية التحتية). "
+        "استخدم أسماء مستشفيات ومعالم أردنية حقيقية من القائمة المُعطاة، ولا تخترع أسماء "
+        "أو أرقامًا غير موجودة. "
         f"أعد مصفوفة JSON من {n} نصوص فقط بالترتيب: [\"سرد 1\", \"سرد 2\", ...]. "
         "لا تكتب أيّ شيء خارج المصفوفة."
     )
     user = (
         f"السيناريو ({role}): {text[:400]}\n"
-        f"المجال: {base['domain']} | السكان المعرّضون: {base['exposed_population']:,}{iv}\n"
+        f"المجال: {base['domain']} | المحافظات المتأثّرة: {govs_ar}\n"
+        f"السكان المعرّضون: {base['exposed_population']:,} من أصل {nat_pop:,} في الأردن.{iv}\n"
+        f"مستشفيات أردنية حقيقية لاستخدامها بالاسم: {hosp_names}\n"
+        f"معالم/بنية تحتية أردنية: {landmarks}\n"
         f"الأدلّة العلمية:\n{evidence}\n\n"
-        f"المراحل وأرقامها (اسرد كلًّا منها في ٢-٣ جمل):\n{phase_facts}\n\n"
-        f"أعد مصفوفة JSON من {n} نصوص عربية بالترتيب."
+        f"المراحل وأرقامها (اسرد كلًّا منها في ٢-٣ جمل واذكر مستشفى أو معلمًا حقيقيًّا عند الملاءمة):\n{phase_facts}\n\n"
+        f"أعد مصفوفة JSON من {n} نصًّا عربيًّا بالترتيب."
     )
     try:
         out = _llm.chat(sysmsg, user, temperature=0.5, max_tokens=1600, timeout=120)

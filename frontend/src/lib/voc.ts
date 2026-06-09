@@ -693,7 +693,11 @@ export interface AbmImpactTimeline {
   domain: string
   intervene: boolean
   exposed_population: number
+  national_population?: number
   affected_governorates: string[]
+  affected_governorates_ar?: string[]
+  hospitals?: string[]
+  landmarks?: string[]
   intensity: number
   steps: AbmImpactStep[]
   totals: { affected: number; casualties: number; injured: number; displaced: number }

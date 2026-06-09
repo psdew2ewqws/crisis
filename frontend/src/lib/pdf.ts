@@ -7,7 +7,7 @@ import html2canvas from 'html2canvas'
 
 // Render several DOM elements into one PDF; each element begins on a FRESH page (so the
 // references block always starts on its own page and never splits across the body).
-export async function downloadElementsAsPdf(els: HTMLElement[], filename: string): Promise<void> {
+export async function downloadElementsAsPdf(els: HTMLElement[], filename: string, bg = '#ffffff'): Promise<void> {
   const pdf = new jsPDF('p', 'mm', 'a4')
   const pageW = pdf.internal.pageSize.getWidth()
   const pageH = pdf.internal.pageSize.getHeight()
@@ -15,7 +15,7 @@ export async function downloadElementsAsPdf(els: HTMLElement[], filename: string
   for (const el of els) {
     if (!el) continue
     const canvas = await html2canvas(el, {
-      scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, windowWidth: el.scrollWidth,
+      scale: 2, backgroundColor: bg, useCORS: true, logging: false, windowWidth: el.scrollWidth,
     })
     const img = canvas.toDataURL('image/jpeg', 0.92)
     const imgH = (canvas.height * pageW) / canvas.width
