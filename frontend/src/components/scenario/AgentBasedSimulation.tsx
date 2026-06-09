@@ -9,18 +9,56 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   Play, RotateCcw, Loader2, MapPin, Wrench, Users, Building2, Megaphone,
-  ShieldAlert, FlaskConical, Clock, Activity, FileText, ChevronDown,
+  ShieldAlert, FlaskConical, Clock, Activity, FileText, AlertTriangle, BarChart3,
 } from 'lucide-react'
 import {
   streamAbm, getScenarioOptions,
   type AbmEvent, type AbmAgentPopulations, type AbmCalibration, type AbmResearchInsights,
   type AbmReportDoc, type AbmTimelineEvent, type AbmImpactTimeline, type AbmCaseStudy,
-  type ScenarioOption, type ScenarioEvent, type ScenarioEvidence,
+  type ScenarioOption, type ScenarioEvidence,
 } from '../../lib/voc'
-import ScenarioCharts from './ScenarioCharts'
 import EvidencePanel from './EvidencePanel'
 import ImpactTimeline from './ImpactTimeline'
 import CaseStudiesPanel from './CaseStudiesPanel'
+import ComparisonDashboard from './ComparisonDashboard'
+
+// ── Report renderer (always-expanded key_figures grid + sections) ────────────
+function ReportBlock({ doc, accent }: { doc: AbmReportDoc; accent: 'danger' | 'good' }) {
+  if (!doc?.ok) return null
+  const tone = accent === 'danger' ? 'text-danger' : 'text-good'
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl border border-border bg-card p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <FileText className={`h-4 w-4 ${tone}`} />
+        <span className="text-[15px] font-semibold text-txt" dir="auto">{doc.meta?.title_ar}</span>
+        <span className="text-[11px] text-faint">{doc.meta?.title_en}</span>
+      </div>
+      {(doc.key_figures ?? []).length > 0 && (
+        <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {(doc.key_figures ?? []).map((kf, i) => (
+            <div key={i} className="rounded-lg border border-border/60 bg-soft/40 px-3 py-2.5">
+              <div className="text-[10px] text-faint" dir="auto">{kf.label}</div>
+              <div className="mt-1 text-[15px] font-semibold text-txt" dir="auto">{kf.value}</div>
+              <div className="text-[9px] text-faint/70" dir="auto">{kf.source}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {(doc.sections ?? []).map((sec, i) => (
+        <div key={i} className="mb-4 last:mb-0">
+          <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+            <span dir="auto">{sec.title_ar}</span>
+            <span className="normal-case tracking-normal opacity-50">{sec.title_en}</span>
+          </div>
+          {sec.paragraphs.filter(Boolean).map((p, j) => (
+            <p key={j} className="mb-1.5 text-[13px] leading-relaxed text-txt" dir="rtl">{p}</p>
+          ))}
+        </div>
+      ))}
+    </motion.div>
+  )
+}
 
 const STAGES: { key: AbmEvent['stage']; label: string }[] = [
   { key: 'seed_society',     label: 'بناء المجتمع' },
@@ -33,6 +71,14 @@ const STAGES: { key: AbmEvent['stage']; label: string }[] = [
   { key: 'reports',          label: 'التقارير' },
   { key: 'synthesize',       label: 'الخلاصة' },
 ]
+
+function Placeholder({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-5 py-8 text-[13px] text-faint" dir="rtl">
+      <Loader2 className="h-4 w-4 animate-spin text-blue" /> {label}
+    </div>
+  )
+}
 
 const CONF_AR: Record<string, string> = { high: 'مرتفعة', medium: 'متوسطة', low: 'منخفضة' }
 const SRC_AR: Record<string, string> = {
@@ -66,10 +112,10 @@ export default function AgentBasedSimulation() {
   const [caseStudies, setCaseStudies] = useState<AbmCaseStudy[]>([])
   const [crisisReport, setCrisisReport] = useState<AbmReportDoc | null>(null)
   const [solutionReport, setSolutionReport] = useState<AbmReportDoc | null>(null)
-  const [openReport, setOpenReport] = useState<'crisis' | 'solution' | null>(null)
   const [crisisImpact, setCrisisImpact] = useState<AbmImpactTimeline | null>(null)
   const [solutionImpact, setSolutionImpact] = useState<AbmImpactTimeline | null>(null)
   const [synthesis, setSynthesis] = useState<string | null>(null)
+  const [tab, setTab] = useState<'report' | 'solution' | 'compare'>('report')
   const abortRef = useRef<AbortController | null>(null)
   const autoRunRef = useRef(false)
 
@@ -100,7 +146,7 @@ export default function AgentBasedSimulation() {
     abortRef.current?.abort()
     setDone(new Set()); setPops(null); setEngineNotes(null); setCalib(null)
     setSim(null); setTimeline([]); setResearch(null); setPapers([]); setCaseStudies([])
-    setCrisisReport(null); setSolutionReport(null); setOpenReport(null)
+    setCrisisReport(null); setSolutionReport(null); setTab('report')
     setCrisisImpact(null); setSolutionImpact(null)
     setSynthesis(null); setError(null)
   }, [])
@@ -179,6 +225,7 @@ export default function AgentBasedSimulation() {
 
   const disabled = running || text.trim().length < 6
   const selectCls = 'w-full bg-transparent text-[13px] text-txt focus:outline-none [&>option]:bg-card [&>option]:text-txt'
+  const hasResults = !!(sim || crisisReport || solutionReport || crisisImpact)
 
   return (
     <div className="space-y-5">
@@ -250,226 +297,186 @@ export default function AgentBasedSimulation() {
         </div>
       )}
 
-      {/* historical case studies from ai_case_studies DB */}
-      {caseStudies.length > 0 && <CaseStudiesPanel cases={caseStudies} />}
-
-      {/* agent society */}
-      {pops && (
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
-            <Users className="h-3.5 w-3.5" /> مجتمع الوكلاء
-            {engineNotes && (
-              <span className="ms-auto flex items-center gap-1.5 normal-case tracking-normal text-faint">
-                <span className={`rounded px-1.5 py-0.5 ${engineNotes.mesa ? 'bg-good/10 text-good' : 'bg-soft'}`}>Mesa {engineNotes.mesa ? 'on' : 'fallback'}</span>
-                <span className={`rounded px-1.5 py-0.5 ${engineNotes.dowhy ? 'bg-good/10 text-good' : 'bg-soft'}`}>DoWhy {engineNotes.dowhy ? 'on' : 'off'}</span>
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { icon: Users, label: 'مواطنون (تجمّعات)', value: pops.citizens, sub: `${pops.citizen_pop_total.toLocaleString('en-US')} إشارة` },
-              { icon: Building2, label: 'خدمات', value: pops.services, sub: 'وكلاء خدمة' },
-              { icon: ShieldAlert, label: 'جهة مشغّلة', value: pops.operators, sub: 'حكومة/تدخّل' },
-              { icon: Megaphone, label: 'إعلام', value: pops.media, sub: 'تضخيم' },
-            ].map((c) => (
-              <div key={c.label} className="rounded-lg border border-border/60 bg-soft/40 px-3 py-2.5">
-                <div className="flex items-center gap-1.5 text-[11px] text-faint" dir="auto"><c.icon className="h-3.5 w-3.5" />{c.label}</div>
-                <div className="mt-1 font-mono text-[20px] font-semibold text-txt">{c.value}</div>
-                <div className="text-[10px] text-faint" dir="auto">{c.sub}</div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-      )}
-
-      {/* calibration badge */}
-      {calib && (
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
-            <FlaskConical className="h-3.5 w-3.5" /> معايرة التدخّل
-          </div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <span className="rounded-lg border border-blue/30 bg-blue/10 px-3 py-1.5 text-[13px] font-semibold text-blue">
-              حجم الأثر {Math.round(calib.effect_size * 100)}٪
-            </span>
-            <span className="rounded-lg border border-border bg-soft px-2.5 py-1.5 text-[12px] text-muted" dir="auto">
-              ثقة {CONF_AR[calib.confidence] ?? calib.confidence}
-            </span>
-            <span className="rounded-lg border border-border bg-soft px-2.5 py-1.5 text-[12px] text-muted" dir="auto">
-              {SRC_AR[calib.source] ?? calib.source}
-            </span>
-            {calib.refutation?.available && (
-              <span className={`rounded-lg px-2.5 py-1.5 text-[12px] ${calib.refutation.robust ? 'bg-good/10 text-good' : 'bg-warn/10 text-warn'}`} dir="auto">
-                {calib.refutation.robust ? 'متين سببيًّا' : 'غير متين'}
-              </span>
-            )}
-          </div>
-          <p className="mt-2 text-[12px] leading-relaxed text-muted" dir="rtl">{calib.notes_ar}</p>
-        </motion.div>
-      )}
-
-      {/* intervention timeline */}
-      {timeline.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
-            <Clock className="h-3.5 w-3.5" /> توقيت التدخّل (تأخّر واقعي)
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {timeline.map((t, i) => (
-              <span key={i} className="flex items-center gap-1.5 rounded-full border border-border bg-soft/50 px-2.5 py-1 text-[11px] text-txt">
-                <span className="font-mono text-faint">t={t.tick}</span>
-                <span dir="auto">
-                  {t.event === 'detected' ? 'اكتشاف الأزمة'
-                    : t.event === 'intervene' ? 'قرار التدخّل'
-                    : t.event === 'ramp_full' ? 'بلوغ الأثر الكامل' : t.event}
-                </span>
-              </span>
-            ))}
-          </div>
-        </motion.div>
-      )}
-
-      {/* before/after charts — reuse ScenarioCharts (problem vs solution) */}
-      {sim && (
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-txt" dir="auto">
-            <Activity className="h-4 w-4 text-blue" /> الأزمة (دون تدخّل) مقابل الحلّ (تدخّل مُعاير)
-          </div>
-          <ScenarioCharts sim={sim as unknown as ScenarioEvent} />
-        </motion.div>
-      )}
-
-      {/* Concrete step-by-step impact simulation — what ACTUALLY happens */}
-      {(crisisImpact || solutionImpact) && (
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-[13px] font-semibold text-txt" dir="auto">
-            <Activity className="h-4 w-4 text-danger" /> المحاكاة الفعلية للأثر — ماذا يحدث خطوة بخطوة
-          </div>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {crisisImpact && <ImpactTimeline timeline={crisisImpact} accent="crisis" />}
-            {solutionImpact && <ImpactTimeline timeline={solutionImpact} accent="solution" />}
-          </div>
-        </div>
-      )}
-
-      {/* Two-report panel: crisis + solution */}
-      {(crisisReport || solutionReport) && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {/* ── result tabs ─────────────────────────────────────────────── */}
+      {hasResults && (
+        <div className="flex items-center gap-1 border-b border-border">
           {([
-            { key: 'crisis' as const, doc: crisisReport, accent: 'danger', label: 'تقرير الأزمة', sub: 'Crisis Report' },
-            { key: 'solution' as const, doc: solutionReport, accent: 'good', label: 'تقرير الحلول', sub: 'Solution Report' },
-          ] as const).map(({ key, doc, label, sub }) => doc && (
-            <motion.div key={key} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-              className="rounded-xl border border-border bg-card">
-              {/* report header — click to expand */}
-              <button type="button" onClick={() => setOpenReport(o => o === key ? null : key)}
-                className="flex w-full items-center justify-between px-5 py-3 transition-colors hover:bg-soft/40">
-                <div className="flex items-center gap-2">
-                  <FileText className={`h-4 w-4 ${key === 'crisis' ? 'text-danger' : 'text-good'}`} />
-                  <span className="text-[14px] font-semibold text-txt" dir="auto">{label}</span>
-                  <span className="text-[11px] text-faint">{sub}</span>
-                </div>
-                <ChevronDown className={`h-4 w-4 text-muted transition-transform ${openReport === key ? 'rotate-180' : ''}`} />
-              </button>
-
-              {openReport === key && doc.ok && (
-                <div className="border-t border-border px-5 pb-5 pt-4">
-                  {/* key figures grid */}
-                  {(doc.key_figures ?? []).length > 0 && (
-                    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {(doc.key_figures ?? []).map((kf, i) => (
-                        <div key={i} className="rounded-lg border border-border/60 bg-soft/40 px-3 py-2">
-                          <div className="text-[10px] text-faint" dir="auto">{kf.label}</div>
-                          <div className="mt-0.5 text-[14px] font-semibold text-txt" dir="auto">{kf.value}</div>
-                          <div className="text-[9px] text-faint/70" dir="auto">{kf.source}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {/* sections */}
-                  {(doc.sections ?? []).map((sec, i) => (
-                    <div key={i} className="mb-4">
-                      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
-                        <span>{sec.title_ar}</span>
-                        <span className="normal-case tracking-normal opacity-50">{sec.title_en}</span>
-                      </div>
-                      {sec.paragraphs.filter(Boolean).map((p, j) => (
-                        <p key={j} className="mb-1.5 text-[13px] leading-relaxed text-txt" dir="rtl">{p}</p>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </motion.div>
+            { key: 'report' as const,   icon: AlertTriangle, ar: 'تقرير المحاكاة',  en: 'Simulation Report' },
+            { key: 'solution' as const, icon: FileText,      ar: 'تقرير الحلول',    en: 'Solution Report' },
+            { key: 'compare' as const,  icon: BarChart3,     ar: 'لوحة المقارنة',   en: 'Comparison' },
+          ]).map((t) => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`relative flex items-center gap-1.5 px-4 py-2.5 text-[13px] transition-colors ${
+                tab === t.key ? 'font-semibold text-txt' : 'text-muted hover:text-txt'
+              }`}>
+              <t.icon className="h-3.5 w-3.5" />
+              <span dir="auto">{t.ar}</span>
+              {tab === t.key && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded bg-blue" />}
+            </button>
           ))}
         </div>
       )}
 
-      {/* Research-informed parameters panel — shown BEFORE charts, explaining what papers contributed */}
-      {research && (
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
-            <FlaskConical className="h-3.5 w-3.5 text-blue" />
-            معايرة مستنِدة إلى الأدلة العلمية
-            <span className="ms-1 rounded bg-blue/10 px-1.5 py-0.5 font-mono normal-case tracking-normal text-blue">
-              {research.n_contributing}/{research.n_papers} papers contributed
-            </span>
-          </div>
-          <p className="mb-3 text-[12px] leading-relaxed text-muted" dir="rtl">{research.notes_ar}</p>
+      {/* ── TAB 1: Simulation Report ─────────────────────────────────── */}
+      {hasResults && tab === 'report' && (
+        <div className="space-y-5">
+          {crisisReport
+            ? <ReportBlock doc={crisisReport} accent="danger" />
+            : running && <Placeholder label="يُعِدّ تقرير المحاكاة…" />}
 
-          {/* What each paper contributed */}
-          {research.sources.length > 0 && (
-            <div className="mb-3 space-y-1.5">
-              {research.sources.map((s, i) => (
-                <div key={i} className="flex items-start gap-2 rounded-lg border border-border/50 bg-soft/40 px-3 py-2">
-                  <span className="mt-0.5 font-mono text-[10px] text-faint">[{s.year ?? '—'}]</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12px] font-medium text-txt">{s.title}</p>
-                    <p className="text-[10px] text-blue" dir="ltr">{s.contribution}</p>
+          {/* agent society */}
+          {pops && (
+            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+              className="rounded-xl border border-border bg-card p-5">
+              <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+                <Users className="h-3.5 w-3.5" /> مجتمع الوكلاء
+                {engineNotes && (
+                  <span className="ms-auto flex items-center gap-1.5 normal-case tracking-normal text-faint">
+                    <span className={`rounded px-1.5 py-0.5 ${engineNotes.mesa ? 'bg-good/10 text-good' : 'bg-soft'}`}>Mesa {engineNotes.mesa ? 'on' : 'fallback'}</span>
+                    <span className={`rounded px-1.5 py-0.5 ${engineNotes.dowhy ? 'bg-good/10 text-good' : 'bg-soft'}`}>DoWhy {engineNotes.dowhy ? 'on' : 'off'}</span>
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { icon: Users, label: 'مواطنون (تجمّعات)', value: pops.citizens, sub: `${pops.citizen_pop_total.toLocaleString('en-US')} إشارة` },
+                  { icon: Building2, label: 'خدمات', value: pops.services, sub: 'وكلاء خدمة' },
+                  { icon: ShieldAlert, label: 'جهة مشغّلة', value: pops.operators, sub: 'حكومة/تدخّل' },
+                  { icon: Megaphone, label: 'إعلام', value: pops.media, sub: 'تضخيم' },
+                ].map((c) => (
+                  <div key={c.label} className="rounded-lg border border-border/60 bg-soft/40 px-3 py-2.5">
+                    <div className="flex items-center gap-1.5 text-[11px] text-faint" dir="auto"><c.icon className="h-3.5 w-3.5" />{c.label}</div>
+                    <div className="mt-1 font-mono text-[20px] font-semibold text-txt">{c.value}</div>
+                    <div className="text-[10px] text-faint" dir="auto">{c.sub}</div>
                   </div>
-                  {s.doi && (
-                    <a href={`https://doi.org/${s.doi}`} target="_blank" rel="noopener noreferrer"
-                      className="shrink-0 text-[10px] text-faint underline hover:text-txt">DOI</a>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </motion.div>
           )}
 
-          {/* Recommended interventions from literature */}
-          {research.interventions.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              <span className="text-[11px] text-faint" dir="auto">تدخّلات مقترحة من الأدبيات:</span>
-              {research.interventions.map((iv) => (
-                <span key={iv}
-                  className="rounded-full border border-blue/30 bg-blue/10 px-2.5 py-0.5 text-[11px] font-medium text-blue capitalize">
-                  {iv}
+          {/* calibration badge */}
+          {calib && (
+            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+              className="rounded-xl border border-border bg-card p-5">
+              <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+                <FlaskConical className="h-3.5 w-3.5" /> معايرة التدخّل
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="rounded-lg border border-blue/30 bg-blue/10 px-3 py-1.5 text-[13px] font-semibold text-blue">
+                  حجم الأثر {Math.round(calib.effect_size * 100)}٪
                 </span>
-              ))}
-            </div>
+                <span className="rounded-lg border border-border bg-soft px-2.5 py-1.5 text-[12px] text-muted" dir="auto">
+                  ثقة {CONF_AR[calib.confidence] ?? calib.confidence}
+                </span>
+                <span className="rounded-lg border border-border bg-soft px-2.5 py-1.5 text-[12px] text-muted" dir="auto">
+                  {SRC_AR[calib.source] ?? calib.source}
+                </span>
+                {calib.refutation?.available && (
+                  <span className={`rounded-lg px-2.5 py-1.5 text-[12px] ${calib.refutation.robust ? 'bg-good/10 text-good' : 'bg-warn/10 text-warn'}`} dir="auto">
+                    {calib.refutation.robust ? 'متين سببيًّا' : 'غير متين'}
+                  </span>
+                )}
+              </div>
+              <p className="mt-2 text-[12px] leading-relaxed text-muted" dir="rtl">{calib.notes_ar}</p>
+            </motion.div>
           )}
-        </motion.div>
+
+          {/* crisis impact timeline (what happens with no intervention) */}
+          {crisisImpact && <ImpactTimeline timeline={crisisImpact} accent="crisis" />}
+        </div>
       )}
 
-      {/* Full evidence panel with open-access links */}
-      {papers.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-          <EvidencePanel items={papers} abstained={false} />
-        </motion.div>
+      {/* ── TAB 2: Solution Report ───────────────────────────────────── */}
+      {hasResults && tab === 'solution' && (
+        <div className="space-y-5">
+          {solutionReport
+            ? <ReportBlock doc={solutionReport} accent="good" />
+            : running && <Placeholder label="يُعِدّ تقرير الحلول…" />}
+
+          {/* intervention timing strip */}
+          {timeline.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+              className="rounded-xl border border-border bg-card p-5">
+              <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+                <Clock className="h-3.5 w-3.5" /> توقيت التدخّل (تأخّر واقعي)
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {timeline.map((t, i) => (
+                  <span key={i} className="flex items-center gap-1.5 rounded-full border border-border bg-soft/50 px-2.5 py-1 text-[11px] text-txt">
+                    <span className="font-mono text-faint">t={t.tick}</span>
+                    <span dir="auto">
+                      {t.event === 'detected' ? 'اكتشاف الأزمة'
+                        : t.event === 'intervene' ? 'قرار التدخّل'
+                        : t.event === 'ramp_full' ? 'بلوغ الأثر الكامل' : t.event}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* research-informed interventions */}
+          {research && (
+            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+              className="rounded-xl border border-border bg-card p-5">
+              <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+                <FlaskConical className="h-3.5 w-3.5 text-blue" />
+                معايرة مستنِدة إلى الأدلة العلمية
+                <span className="ms-1 rounded bg-blue/10 px-1.5 py-0.5 font-mono normal-case tracking-normal text-blue">
+                  {research.n_contributing}/{research.n_papers} papers
+                </span>
+              </div>
+              <p className="mb-3 text-[12px] leading-relaxed text-muted" dir="rtl">{research.notes_ar}</p>
+              {research.sources.length > 0 && (
+                <div className="mb-3 space-y-1.5">
+                  {research.sources.map((s, i) => (
+                    <div key={i} className="flex items-start gap-2 rounded-lg border border-border/50 bg-soft/40 px-3 py-2">
+                      <span className="mt-0.5 font-mono text-[10px] text-faint">[{s.year ?? '—'}]</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[12px] font-medium text-txt">{s.title}</p>
+                        <p className="text-[10px] text-blue" dir="ltr">{s.contribution}</p>
+                      </div>
+                      {s.doi && (
+                        <a href={`https://doi.org/${s.doi}`} target="_blank" rel="noopener noreferrer"
+                          className="shrink-0 text-[10px] text-faint underline hover:text-txt">DOI</a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {research.interventions.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="text-[11px] text-faint" dir="auto">تدخّلات مقترحة من الأدبيات:</span>
+                  {research.interventions.map((iv) => (
+                    <span key={iv} className="rounded-full border border-blue/30 bg-blue/10 px-2.5 py-0.5 text-[11px] font-medium text-blue capitalize">
+                      {iv}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* historical case studies (what worked) */}
+          {caseStudies.length > 0 && <CaseStudiesPanel cases={caseStudies} />}
+
+          {/* full evidence */}
+          {papers.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+              <EvidencePanel items={papers} abstained={false} />
+            </motion.div>
+          )}
+
+          {/* solution impact timeline (what happens with intervention) */}
+          {solutionImpact && <ImpactTimeline timeline={solutionImpact} accent="solution" />}
+        </div>
       )}
 
-      {/* synthesis */}
-      {synthesis && (
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-blue/30 bg-blue/5 p-5">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-blue">الخلاصة</div>
-          <p className="text-[14px] leading-relaxed text-txt" dir="rtl">{synthesis}</p>
-        </motion.div>
+      {/* ── TAB 3: Comparison Dashboard ──────────────────────────────── */}
+      {hasResults && tab === 'compare' && (
+        sim
+          ? <ComparisonDashboard sim={sim} crisisImpact={crisisImpact} solutionImpact={solutionImpact} synthesis={synthesis} />
+          : <Placeholder label="تُعِدّ لوحة المقارنة…" />
       )}
     </div>
   )
