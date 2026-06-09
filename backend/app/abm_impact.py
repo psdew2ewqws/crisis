@@ -22,6 +22,7 @@ calibrated forecast.
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -29,6 +30,13 @@ try:
     from . import llm as _llm
 except Exception:  # pragma: no cover
     _llm = None  # type: ignore
+
+# Per-phase LLM narrative enrichment is OFF by default: it adds a model round-trip
+# per phase (~20-25s each on the `:cloud` models), which made the whole ABM run feel
+# hung (60-90s). The deterministic narratives are already specific and Arabic, and the
+# case-number blending + synthesis carry the grounding regardless. Set ABM_IMPACT_LLM=1
+# to opt back into LLM-written narratives (best with a fast local model).
+_LLM_NARRATIVE_ON = os.environ.get("ABM_IMPACT_LLM", "").strip().lower() in ("1", "true", "yes", "on")
 
 # ── Jordan demographics (2024 estimates, persons) ─────────────────────────────
 # Keyed by the Arabic governorate name (matches the scenario `location` dropdown),
@@ -490,6 +498,11 @@ def simulate_impact(
                 "year": None,
                 "snippet": f"الحل الموثّق: {c['solution'][:300]}",
             })
+
+    # LLM narrative is opt-in (see _LLM_NARRATIVE_ON) — it adds a slow per-phase model
+    # call. When off, the deterministic + case-blended timeline is returned directly.
+    if not _LLM_NARRATIVE_ON:
+        return base
 
     enriched = _llm_timeline(text, base, all_evidence, intervene,
                              interventions or [c.get("solution","")[:80] for c in (case_studies or [])[:2]])
